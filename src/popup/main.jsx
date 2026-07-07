@@ -5,18 +5,28 @@ import {
   extractReadableContentFromTab,
 } from '../extraction/readability'
 import { clearArticles, getAllArticles, saveArticle } from '../storage/articles'
+import { getOpenAIApiKey } from '../storage/settings'
 import './style.css'
 
 function Popup() {
   const [articles, setArticles] = useState([])
   const [statusMessage, setStatusMessage] = useState('')
   const [isSaving, setIsSaving] = useState(false)
+  const [hasApiKey, setHasApiKey] = useState(null)
 
   useEffect(() => {
     getAllArticles()
       .then(setArticles)
       .catch((error) => {
         console.log('Recall: failed to load articles', error)
+      })
+
+    getOpenAIApiKey()
+      .then((apiKey) => {
+        setHasApiKey(Boolean(apiKey))
+      })
+      .catch(() => {
+        setHasApiKey(false)
       })
   }, [])
 
@@ -89,6 +99,27 @@ function Popup() {
       })
   }
 
+  const handleOpenSettingsClick = () => {
+    const runtimeApi = globalThis.chrome?.runtime
+
+    if (!runtimeApi?.openOptionsPage) {
+      setStatusMessage('无法打开设置页')
+      return
+    }
+
+    try {
+      const openResult = runtimeApi.openOptionsPage()
+
+      if (openResult?.catch) {
+        openResult.catch(() => {
+          setStatusMessage('无法打开设置页')
+        })
+      }
+    } catch {
+      setStatusMessage('无法打开设置页')
+    }
+  }
+
   return (
     <main className="popup">
       <h1>Recall</h1>
@@ -104,7 +135,17 @@ function Popup() {
         >
           清空收藏
         </button>
+        <button
+          type="button"
+          className="secondary-button"
+          onClick={handleOpenSettingsClick}
+        >
+          打开设置
+        </button>
       </div>
+      {hasApiKey === false ? (
+        <p className="api-key-notice">未配置 API Key，后续 AI 功能不可用。</p>
+      ) : null}
       {statusMessage ? (
         <p className="status-message" role="status">
           {statusMessage}
