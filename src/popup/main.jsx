@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import { generateArticleInsights } from '../ai/openai'
 import {
   canExtractFromUrl,
   extractReadableContentFromTab,
@@ -69,16 +70,54 @@ function Popup() {
         return
       }
 
+      const apiKey = await getOpenAIApiKey().catch(() => '')
+      let aiFields = {
+        summary: '',
+        tags: [],
+        aiStatus: 'skipped',
+        aiError: '',
+      }
+      let nextStatusMessage = '已保存当前页面，未配置 API Key，已跳过 AI 生成'
+
+      if (apiKey) {
+        try {
+          const insights = await generateArticleInsights({
+            apiKey,
+            title: extractedArticle.title || tab.title || '无标题页面',
+            url: tab.url,
+            content: extractedArticle.content,
+          })
+
+          aiFields = {
+            summary: insights.summary,
+            tags: insights.tags,
+            aiStatus: 'completed',
+            aiError: '',
+          }
+          nextStatusMessage = '已保存当前页面并生成摘要'
+        } catch (aiError) {
+          aiFields = {
+            summary: '',
+            tags: [],
+            aiStatus: 'failed',
+            aiError: getFriendlyErrorMessage(aiError),
+          }
+          nextStatusMessage = '已保存当前页面，但 AI 摘要生成失败'
+        }
+      }
+
       await saveArticle({
         title: extractedArticle.title || tab.title || '无标题页面',
         url: tab.url,
         content: extractedArticle.content,
         excerpt: extractedArticle.excerpt,
         wordCount: extractedArticle.wordCount,
+        ...aiFields,
       })
 
       setArticles(await getAllArticles())
-      setStatusMessage('已保存当前页面')
+      setHasApiKey(Boolean(apiKey))
+      setStatusMessage(nextStatusMessage)
     } catch (error) {
       console.log('Recall: failed to save article', error)
       setStatusMessage('当前页面正文提取失败')
@@ -161,6 +200,24 @@ function Popup() {
                 {article.excerpt ? (
                   <p className="article-excerpt">{article.excerpt}</p>
                 ) : null}
+                {article.summary ? (
+                  <p className="article-summary">{article.summary}</p>
+                ) : null}
+                {article.tags?.length > 0 ? (
+                  <div className="tag-list" aria-label="标签">
+                    {article.tags.map((tag) => (
+                      <span className="tag" key={tag}>
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+                {article.aiStatus === 'failed' ? (
+                  <p className="ai-status">AI 摘要生成失败</p>
+                ) : null}
+                {article.aiStatus === 'skipped' ? (
+                  <p className="ai-status">未配置 API Key，已跳过 AI 生成</p>
+                ) : null}
                 <div className="article-meta">
                   <time dateTime={article.createdAt}>
                     {new Date(article.createdAt).toLocaleString()}
@@ -191,6 +248,14 @@ function queryActiveTab(tabsApi) {
       resolve(tab)
     })
   })
+}
+
+function getFriendlyErrorMessage(error) {
+  if (error instanceof Error && error.message) {
+    return error.message.replace(/sk-[A-Za-z0-9_-]+/g, 'sk-***').slice(0, 160)
+  }
+
+  return 'AI 摘要生成失败'
 }
 
 createRoot(document.getElementById('root')).render(
