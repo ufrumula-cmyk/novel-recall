@@ -25,6 +25,12 @@ import {
 import { cosineSimilarity } from '../utils/vector'
 import './style.css'
 
+const SOURCE_FILTERS = [
+  { value: 'all', label: '全部收藏' },
+  { value: 'manual', label: '手动收藏' },
+  { value: 'auto', label: '自动索引' },
+]
+
 function Popup() {
   const [articles, setArticles] = useState([])
   const [statusMessage, setStatusMessage] = useState('')
@@ -35,6 +41,7 @@ function Popup() {
   const [isSearching, setIsSearching] = useState(false)
   const [autoIndexEnabled, setAutoIndexEnabled] = useState(false)
   const [autoIndexLastStatus, setAutoIndexLastStatus] = useState(null)
+  const [sourceFilter, setSourceFilter] = useState('all')
 
   useEffect(() => {
     getAllArticles()
@@ -282,19 +289,29 @@ function Popup() {
     }
   }
 
+  const handleSourceFilterClick = (nextSourceFilter) => {
+    setSourceFilter(nextSourceFilter)
+    setSearchQuery('')
+    setSearchResults(null)
+    setStatusMessage('')
+  }
+
   const handleSearchSubmit = async (event) => {
     event.preventDefault()
 
     const query = searchQuery.trim()
+    const searchScope = filterArticlesBySource(articles, sourceFilter)
 
     if (!query) {
       handleClearSearchClick()
       return
     }
 
-    if (articles.length === 0) {
+    if (searchScope.length === 0) {
       setSearchResults(null)
-      setStatusMessage('暂无收藏')
+      setStatusMessage(
+        sourceFilter === 'all' ? '暂无收藏' : '当前筛选下暂无收藏',
+      )
       return
     }
 
@@ -312,7 +329,7 @@ function Popup() {
         return
       }
 
-      const searchableArticles = articles.filter(
+      const searchableArticles = searchScope.filter(
         (article) =>
           article.embeddingStatus === 'completed' &&
           Array.isArray(article.embedding) &&
@@ -396,7 +413,8 @@ function Popup() {
   }
 
   const isSearchMode = searchResults !== null
-  const displayedArticles = isSearchMode ? searchResults : articles
+  const filteredArticles = filterArticlesBySource(articles, sourceFilter)
+  const displayedArticles = isSearchMode ? searchResults : filteredArticles
   const articleCountLabel = `${articles.length} 篇`
 
   return (
@@ -469,6 +487,21 @@ function Popup() {
           ) : null}
         </div>
       </form>
+      <div className="source-filter" aria-label="收藏来源筛选">
+        {SOURCE_FILTERS.map((filter) => (
+          <button
+            type="button"
+            className={`source-filter-button ${
+              sourceFilter === filter.value ? 'active' : ''
+            }`}
+            key={filter.value}
+            aria-pressed={sourceFilter === filter.value}
+            onClick={() => handleSourceFilterClick(filter.value)}
+          >
+            {filter.label}
+          </button>
+        ))}
+      </div>
       <div className="actions">
         <button type="button" onClick={handleSaveClick} disabled={isSaving}>
           {isSaving ? '正在保存...' : '保存当前页面'}
@@ -560,7 +593,7 @@ function Popup() {
           </div>
         ) : (
           <div className="placeholder">
-            {isSearchMode ? '暂无匹配结果' : '暂无收藏'}
+            {getEmptyStateLabel({ isSearchMode, sourceFilter })}
           </div>
         )}
       </section>
@@ -634,7 +667,37 @@ function getEmbeddingStatusLabel(status) {
 }
 
 function getArticleSourceLabel(source) {
-  return source === 'auto' ? '自动索引' : '手动收藏'
+  return getArticleSource(source) === 'auto' ? '自动索引' : '手动收藏'
+}
+
+function getArticleSource(source) {
+  return source === 'auto' ? 'auto' : 'manual'
+}
+
+function filterArticlesBySource(articles, sourceFilter) {
+  if (sourceFilter === 'all') {
+    return articles
+  }
+
+  return articles.filter(
+    (article) => getArticleSource(article.source) === sourceFilter,
+  )
+}
+
+function getEmptyStateLabel({ isSearchMode, sourceFilter }) {
+  if (isSearchMode) {
+    return '暂无匹配结果'
+  }
+
+  if (sourceFilter === 'manual') {
+    return '暂无手动收藏'
+  }
+
+  if (sourceFilter === 'auto') {
+    return '暂无自动索引'
+  }
+
+  return '暂无收藏'
 }
 
 function getAutoIndexStatusLabel(status) {

@@ -208,6 +208,36 @@ input[type='search']:focus {
   color: #172026;
 }
 
+.source-filter {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  border-radius: 6px;
+  background: #eef2f6;
+  padding: 4px;
+}
+
+.source-filter-button {
+  border: 0;
+  border-radius: 4px;
+  padding: 7px 6px;
+  background: transparent;
+  color: #475467;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.source-filter-button:hover:not(:disabled) {
+  background: #ffffff;
+  color: #172026;
+}
+
+.source-filter-button.active {
+  background: #ffffff;
+  color: #0969da;
+  box-shadow: 0 1px 2px rgb(16 24 40 / 10%);
+}
+
 .actions {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
