@@ -5,12 +5,17 @@ import {
 import { AUTO_INDEX_ARTICLE_MESSAGE } from '../auto-index/messages'
 import {
   MIN_AUTO_INDEX_WORD_COUNT,
-  canAutoIndexPage,
 } from '../auto-index/rules'
+import {
+  AUTO_INDEX_REASON,
+  AUTO_INDEX_STATUS,
+  getPageSkipReason,
+} from '../auto-index/status'
 import { getArticleByUrl, saveArticle } from '../storage/articles'
 import {
   getAutoIndexEnabled,
   getSiliconFlowApiKey,
+  saveAutoIndexLastStatus,
 } from '../storage/settings'
 
 globalThis.chrome?.runtime?.onMessage.addListener(
@@ -23,11 +28,18 @@ globalThis.chrome?.runtime?.onMessage.addListener(
       .then((result) => {
         sendResponse(result)
       })
-      .catch((error) => {
+      .catch(async (error) => {
+        const reason = getFriendlyErrorMessage(error)
+
+        await recordAutoIndexStatus({
+          status: AUTO_INDEX_STATUS.FAILED,
+          reason,
+          url: getRawArticleUrl(message.article),
+        })
         sendResponse({
           ok: false,
           status: 'failed',
-          reason: getFriendlyErrorMessage(error),
+          reason,
         })
       })
 
@@ -39,27 +51,52 @@ async function handleAutoIndexArticle(rawArticle) {
   const enabled = await getAutoIndexEnabled().catch(() => false)
 
   if (!enabled) {
-    return { ok: true, status: 'skipped', reason: 'disabled' }
+    return finishAutoIndexStatus({
+      status: AUTO_INDEX_STATUS.SKIPPED,
+      reason: AUTO_INDEX_REASON.DISABLED,
+      url: getRawArticleUrl(rawArticle),
+    })
   }
 
   const article = normalizeAutoArticle(rawArticle)
 
   if (!article) {
-    return { ok: true, status: 'skipped', reason: 'invalid-article' }
+    return finishAutoIndexStatus({
+      status: AUTO_INDEX_STATUS.SKIPPED,
+      reason: AUTO_INDEX_REASON.INVALID_ARTICLE,
+      url: getRawArticleUrl(rawArticle),
+    })
   }
 
-  if (!canAutoIndexPage(article.url, article.title)) {
-    return { ok: true, status: 'skipped', reason: 'filtered-page' }
+  const pageSkipReason = getPageSkipReason({
+    url: article.url,
+    title: article.title,
+  })
+
+  if (pageSkipReason) {
+    return finishAutoIndexStatus({
+      status: AUTO_INDEX_STATUS.SKIPPED,
+      reason: pageSkipReason,
+      url: article.url,
+    })
   }
 
   if (article.wordCount < MIN_AUTO_INDEX_WORD_COUNT) {
-    return { ok: true, status: 'skipped', reason: 'short-content' }
+    return finishAutoIndexStatus({
+      status: AUTO_INDEX_STATUS.SKIPPED,
+      reason: AUTO_INDEX_REASON.SHORT_CONTENT,
+      url: article.url,
+    })
   }
 
   const existingArticle = await getArticleByUrl(article.url)
 
   if (existingArticle) {
-    return { ok: true, status: 'skipped', reason: 'duplicate-url' }
+    return finishAutoIndexStatus({
+      status: AUTO_INDEX_STATUS.SKIPPED,
+      reason: AUTO_INDEX_REASON.DUPLICATE_URL,
+      url: article.url,
+    })
   }
 
   const apiKey = await getSiliconFlowApiKey().catch(() => '')
@@ -138,9 +175,14 @@ async function handleAutoIndexArticle(rawArticle) {
     autoCapturedAt,
   })
 
+  const result = await finishAutoIndexStatus({
+    status: AUTO_INDEX_STATUS.SUCCESS,
+    reason: AUTO_INDEX_REASON.SAVED,
+    url: article.url,
+  })
+
   return {
-    ok: true,
-    status: 'saved',
+    ...result,
     articleId: savedArticle.id,
   }
 }
@@ -171,6 +213,28 @@ function normalizeAutoArticle(article) {
 
 function cleanText(value) {
   return typeof value === 'string' ? value.trim() : ''
+}
+
+function getRawArticleUrl(article) {
+  return article && typeof article.url === 'string' ? article.url : ''
+}
+
+async function finishAutoIndexStatus({ status, reason, url }) {
+  await recordAutoIndexStatus({ status, reason, url })
+
+  return {
+    ok: status !== AUTO_INDEX_STATUS.FAILED,
+    status,
+    reason,
+  }
+}
+
+async function recordAutoIndexStatus({ status, reason, url }) {
+  await saveAutoIndexLastStatus({
+    status,
+    reason,
+    url,
+  }).catch(() => {})
 }
 
 function getFriendlyErrorMessage(error) {

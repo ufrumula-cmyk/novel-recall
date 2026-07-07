@@ -1,12 +1,19 @@
 import {
   AUTO_INDEX_DELAY_MS,
   MIN_AUTO_INDEX_WORD_COUNT,
-  canAutoIndexPage,
   hasSensitiveForm,
 } from '../auto-index/rules'
 import { AUTO_INDEX_ARTICLE_MESSAGE } from '../auto-index/messages'
-import { extractReadableContentFromDocument } from '../extraction/readability'
-import { getAutoIndexEnabled } from '../storage/settings'
+import {
+  AUTO_INDEX_REASON,
+  AUTO_INDEX_STATUS,
+  getPageSkipReason,
+} from '../auto-index/status'
+import { extractConservativeContentFromDocument } from '../auto-index/extract'
+import {
+  getAutoIndexEnabled,
+  saveAutoIndexLastStatus,
+} from '../storage/settings'
 
 let autoIndexTimer = null
 
@@ -23,17 +30,27 @@ window.addEventListener(
 )
 
 async function startAutoIndexTimer() {
-  if (!canAutoIndexPage(window.location.href, document.title)) {
-    return
-  }
-
-  if (hasSensitiveForm(document)) {
-    return
-  }
-
   const enabled = await getAutoIndexEnabled().catch(() => false)
 
   if (!enabled) {
+    recordAutoIndexStatus({
+      status: AUTO_INDEX_STATUS.SKIPPED,
+      reason: AUTO_INDEX_REASON.DISABLED,
+    })
+    return
+  }
+
+  const pageSkipReason = getPageSkipReason({
+    url: window.location.href,
+    title: document.title,
+    hasSensitiveForm: hasSensitiveForm(document),
+  })
+
+  if (pageSkipReason) {
+    recordAutoIndexStatus({
+      status: AUTO_INDEX_STATUS.SKIPPED,
+      reason: pageSkipReason,
+    })
     return
   }
 
@@ -43,24 +60,55 @@ async function startAutoIndexTimer() {
 async function captureCurrentPage() {
   const enabled = await getAutoIndexEnabled().catch(() => false)
 
-  if (!enabled || document.visibilityState === 'hidden') {
+  if (!enabled) {
+    recordAutoIndexStatus({
+      status: AUTO_INDEX_STATUS.SKIPPED,
+      reason: AUTO_INDEX_REASON.DISABLED,
+    })
     return
   }
 
-  if (
-    !canAutoIndexPage(window.location.href, document.title) ||
-    hasSensitiveForm(document)
-  ) {
+  if (document.visibilityState === 'hidden') {
+    recordAutoIndexStatus({
+      status: AUTO_INDEX_STATUS.SKIPPED,
+      reason: AUTO_INDEX_REASON.HIDDEN_PAGE,
+    })
     return
   }
 
-  const article = extractReadableContentFromDocument(
+  const pageSkipReason = getPageSkipReason({
+    url: window.location.href,
+    title: document.title,
+    hasSensitiveForm: hasSensitiveForm(document),
+  })
+
+  if (pageSkipReason) {
+    recordAutoIndexStatus({
+      status: AUTO_INDEX_STATUS.SKIPPED,
+      reason: pageSkipReason,
+    })
+    return
+  }
+
+  const article = extractConservativeContentFromDocument(
     document,
     window.location.href,
     document.title,
   )
 
-  if (!article || article.wordCount < MIN_AUTO_INDEX_WORD_COUNT) {
+  if (!article) {
+    recordAutoIndexStatus({
+      status: AUTO_INDEX_STATUS.SKIPPED,
+      reason: AUTO_INDEX_REASON.EXTRACTION_FAILED,
+    })
+    return
+  }
+
+  if (article.wordCount < MIN_AUTO_INDEX_WORD_COUNT) {
+    recordAutoIndexStatus({
+      status: AUTO_INDEX_STATUS.SKIPPED,
+      reason: AUTO_INDEX_REASON.SHORT_CONTENT,
+    })
     return
   }
 
@@ -73,6 +121,19 @@ async function captureCurrentPage() {
       excerpt: article.excerpt,
       wordCount: article.wordCount,
     },
+  }).catch(() => {
+    recordAutoIndexStatus({
+      status: AUTO_INDEX_STATUS.FAILED,
+      reason: AUTO_INDEX_REASON.BACKGROUND_UNAVAILABLE,
+    })
+  })
+}
+
+function recordAutoIndexStatus({ status, reason }) {
+  saveAutoIndexLastStatus({
+    status,
+    reason,
+    url: window.location.href,
   }).catch(() => {})
 }
 

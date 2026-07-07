@@ -1,5 +1,6 @@
 const SILICONFLOW_API_KEY_STORAGE_KEY = 'siliconFlowApiKey'
 export const AUTO_INDEX_ENABLED_STORAGE_KEY = 'autoIndexEnabled'
+export const AUTO_INDEX_LAST_STATUS_STORAGE_KEY = 'autoIndexLastStatus'
 
 export async function getSiliconFlowApiKey() {
   const result = await storageGet(SILICONFLOW_API_KEY_STORAGE_KEY)
@@ -30,6 +31,28 @@ export async function saveAutoIndexEnabled(enabled) {
   })
 }
 
+export async function getAutoIndexLastStatus() {
+  const result = await storageGet(AUTO_INDEX_LAST_STATUS_STORAGE_KEY)
+  const lastStatus = result[AUTO_INDEX_LAST_STATUS_STORAGE_KEY]
+
+  if (!isAutoIndexLastStatus(lastStatus)) {
+    return null
+  }
+
+  return lastStatus
+}
+
+export async function saveAutoIndexLastStatus({ status, reason, url }) {
+  await storageSet({
+    [AUTO_INDEX_LAST_STATUS_STORAGE_KEY]: {
+      status,
+      reason,
+      url,
+      time: new Date().toISOString(),
+    },
+  })
+}
+
 function getStorageArea() {
   const storageArea = globalThis.chrome?.storage?.local
 
@@ -38,6 +61,17 @@ function getStorageArea() {
   }
 
   return storageArea
+}
+
+function isAutoIndexLastStatus(value) {
+  return (
+    value &&
+    typeof value === 'object' &&
+    typeof value.status === 'string' &&
+    typeof value.reason === 'string' &&
+    typeof value.url === 'string' &&
+    typeof value.time === 'string'
+  )
 }
 
 function storageGet(key) {

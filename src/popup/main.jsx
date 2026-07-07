@@ -17,6 +17,8 @@ import {
 } from '../storage/articles'
 import {
   AUTO_INDEX_ENABLED_STORAGE_KEY,
+  AUTO_INDEX_LAST_STATUS_STORAGE_KEY,
+  getAutoIndexLastStatus,
   getAutoIndexEnabled,
   getSiliconFlowApiKey,
 } from '../storage/settings'
@@ -32,6 +34,7 @@ function Popup() {
   const [searchResults, setSearchResults] = useState(null)
   const [isSearching, setIsSearching] = useState(false)
   const [autoIndexEnabled, setAutoIndexEnabled] = useState(false)
+  const [autoIndexLastStatus, setAutoIndexLastStatus] = useState(null)
 
   useEffect(() => {
     getAllArticles()
@@ -54,6 +57,12 @@ function Popup() {
         setAutoIndexEnabled(false)
       })
 
+    getAutoIndexLastStatus()
+      .then(setAutoIndexLastStatus)
+      .catch(() => {
+        setAutoIndexLastStatus(null)
+      })
+
     const storageChangeApi = globalThis.chrome?.storage?.onChanged
     const handleStorageChange = (changes, areaName) => {
       if (
@@ -65,6 +74,20 @@ function Popup() {
       ) {
         setAutoIndexEnabled(
           changes[AUTO_INDEX_ENABLED_STORAGE_KEY].newValue === true,
+        )
+      }
+
+      if (
+        areaName === 'local' &&
+        Object.prototype.hasOwnProperty.call(
+          changes,
+          AUTO_INDEX_LAST_STATUS_STORAGE_KEY,
+        )
+      ) {
+        setAutoIndexLastStatus(
+          normalizeAutoIndexLastStatus(
+            changes[AUTO_INDEX_LAST_STATUS_STORAGE_KEY].newValue,
+          ),
         )
       }
     }
@@ -403,6 +426,26 @@ function Popup() {
       >
         自动索引：{autoIndexEnabled ? '已开启' : '已关闭'}
       </p>
+      {autoIndexLastStatus ? (
+        <div
+          className={`auto-index-last-status ${autoIndexLastStatus.status}`}
+          role="status"
+        >
+          <div>
+            <span>
+              最近自动索引：
+              {getAutoIndexStatusLabel(autoIndexLastStatus.status)}
+            </span>
+            <span>{autoIndexLastStatus.reason}</span>
+            <time dateTime={autoIndexLastStatus.time}>
+              {formatAutoIndexStatusTime(autoIndexLastStatus.time)}
+            </time>
+          </div>
+          {autoIndexLastStatus.url ? (
+            <p>{autoIndexLastStatus.url}</p>
+          ) : null}
+        </div>
+      ) : null}
       <form className="search-form" onSubmit={handleSearchSubmit}>
         <div className="search-input-wrap">
           <input
@@ -592,6 +635,43 @@ function getEmbeddingStatusLabel(status) {
 
 function getArticleSourceLabel(source) {
   return source === 'auto' ? '自动索引' : '手动收藏'
+}
+
+function getAutoIndexStatusLabel(status) {
+  if (status === 'success') {
+    return '成功'
+  }
+
+  if (status === 'failed') {
+    return '失败'
+  }
+
+  return '跳过'
+}
+
+function formatAutoIndexStatusTime(time) {
+  const timestamp = new Date(time)
+
+  if (Number.isNaN(timestamp.getTime())) {
+    return ''
+  }
+
+  return timestamp.toLocaleString()
+}
+
+function normalizeAutoIndexLastStatus(value) {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    typeof value.status !== 'string' ||
+    typeof value.reason !== 'string' ||
+    typeof value.url !== 'string' ||
+    typeof value.time !== 'string'
+  ) {
+    return null
+  }
+
+  return value
 }
 
 createRoot(document.getElementById('root')).render(
