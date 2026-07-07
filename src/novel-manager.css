@@ -122,11 +122,46 @@ a:hover {
   gap: 10px;
 }
 
+.api-key-panel {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  padding: 12px;
+  background: #ffffff;
+}
+
+.api-key-panel h2 {
+  margin: 0;
+  color: #172026;
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.api-key-panel p {
+  margin: 4px 0 0;
+  color: #687684;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.api-key-form {
+  display: grid;
+  gap: 8px;
+}
+
+.api-key-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
 .search-input-wrap {
   position: relative;
 }
 
-input[type='search'] {
+input[type='search'],
+input[type='password'] {
   width: 100%;
   border: 1px solid #c9d1d9;
   border-radius: 6px;
@@ -144,9 +179,13 @@ input[type='search']:focus-visible {
   border-color: #1f6feb;
 }
 
+input[type='password']:focus-visible {
+  border-color: #1f6feb;
+}
+
 .toolbar-actions {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -315,6 +354,26 @@ input[type='search']:focus-visible {
   color: #233f38;
 }
 
+.analysis-result {
+  display: grid;
+  gap: 8px;
+  border-radius: 8px;
+  background: #f7faf8;
+  padding: 10px;
+}
+
+.analysis-tag-group {
+  display: grid;
+  gap: 6px;
+}
+
+.analysis-tag-label {
+  color: #4d635c;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
 .tag-list {
   display: flex;
   flex-wrap: wrap;
@@ -328,6 +387,21 @@ input[type='search']:focus-visible {
   font-size: 11px;
   line-height: 1;
   padding: 6px 8px;
+}
+
+.analysis-tag {
+  background: #e6f2ed;
+  color: #265547;
+}
+
+.novel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.analysis-button {
+  width: auto;
 }
 
 .delete-button {

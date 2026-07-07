@@ -83,6 +83,28 @@ export async function saveNovel(rawNovel) {
   return normalizedNovel
 }
 
+export async function updateNovelAnalysis(novelId, analysis) {
+  const db = await dbPromise
+  const existingNovel = await db.get(STORE_NAME, novelId)
+
+  if (!existingNovel) {
+    throw new Error('小说不存在')
+  }
+
+  const updatedNovel = removeEmptyFields({
+    ...existingNovel,
+    summary: normalizeString(analysis.summary, TEXT_LIMITS.summary),
+    plotKeywords: normalizeStringArray(analysis.plotKeywords),
+    characterTags: normalizeStringArray(analysis.characterTags),
+    genreTags: normalizeStringArray(analysis.genreTags),
+    updatedAt: Date.now(),
+  })
+
+  await db.put(STORE_NAME, updatedNovel)
+
+  return updatedNovel
+}
+
 export async function importNovels(payload) {
   const rawNovels = getNovelArrayFromPayload(payload)
   const db = await dbPromise

@@ -1,11 +1,18 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { generateNovelAnalysis } from './ai/siliconflow'
 import {
   clearNovels,
   deleteNovel,
   getAllNovels,
   getAllNovelsForExport,
   importNovels,
+  updateNovelAnalysis,
 } from './storage/novels'
+import {
+  clearSiliconFlowApiKey,
+  getSiliconFlowApiKey,
+  saveSiliconFlowApiKey,
+} from './storage/settings'
 import './novel-manager.css'
 
 export default function NovelManager({ surface = 'page' }) {
@@ -16,17 +23,42 @@ export default function NovelManager({ surface = 'page' }) {
   const [isLoading, setIsLoading] = useState(true)
   const [isImporting, setIsImporting] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
+  const [apiKeyInput, setApiKeyInput] = useState('')
+  const [hasApiKey, setHasApiKey] = useState(false)
+  const [isCheckingApiKey, setIsCheckingApiKey] = useState(true)
+  const [isSavingApiKey, setIsSavingApiKey] = useState(false)
+  const [analyzingNovelIds, setAnalyzingNovelIds] = useState(() => new Set())
+  const [isBatchAnalyzing, setIsBatchAnalyzing] = useState(false)
   const fileInputRef = useRef(null)
 
   useEffect(() => {
     refreshNovels()
+    loadApiKeyStatus()
   }, [])
 
   const displayedNovels = useMemo(
     () => filterNovelsByKeyword(novels, searchQuery),
     [novels, searchQuery],
   )
+  const unanalyzedDisplayedNovels = useMemo(
+    () => displayedNovels.filter((novel) => !hasNovelAnalysis(novel)),
+    [displayedNovels],
+  )
   const isSearchMode = searchQuery.trim().length > 0
+
+  async function loadApiKeyStatus() {
+    setIsCheckingApiKey(true)
+
+    try {
+      const storedApiKey = await getSiliconFlowApiKey()
+
+      setHasApiKey(Boolean(storedApiKey))
+    } catch {
+      showStatus('读取 API Key 状态失败，请确认在扩展页面中使用', 'error')
+    } finally {
+      setIsCheckingApiKey(false)
+    }
+  }
 
   async function refreshNovels() {
     setIsLoading(true)
@@ -37,6 +69,45 @@ export default function NovelManager({ surface = 'page' }) {
       showStatus('读取本地小说数据失败', 'error')
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  async function handleSaveApiKey(event) {
+    event.preventDefault()
+
+    const trimmedApiKey = apiKeyInput.trim()
+
+    if (!trimmedApiKey) {
+      showStatus('请先输入 SiliconFlow API Key', 'error')
+      return
+    }
+
+    setIsSavingApiKey(true)
+
+    try {
+      await saveSiliconFlowApiKey(trimmedApiKey)
+      setApiKeyInput('')
+      setHasApiKey(true)
+      showStatus('SiliconFlow API Key 已保存', 'success')
+    } catch {
+      showStatus('API Key 保存失败，请确认在扩展页面中使用', 'error')
+    } finally {
+      setIsSavingApiKey(false)
+    }
+  }
+
+  async function handleClearApiKey() {
+    setIsSavingApiKey(true)
+
+    try {
+      await clearSiliconFlowApiKey()
+      setApiKeyInput('')
+      setHasApiKey(false)
+      showStatus('SiliconFlow API Key 已清除', 'success')
+    } catch {
+      showStatus('API Key 清除失败，请稍后重试', 'error')
+    } finally {
+      setIsSavingApiKey(false)
     }
   }
 
@@ -134,6 +205,108 @@ export default function NovelManager({ surface = 'page' }) {
     }
   }
 
+  async function handleAnalyzeNovel(novel) {
+    if (analyzingNovelIds.has(novel.id)) {
+      return
+    }
+
+    const apiKey = await getSiliconFlowApiKey().catch(() => '')
+
+    setHasApiKey(Boolean(apiKey))
+
+    if (!apiKey) {
+      showStatus('请先填写并保存 SiliconFlow API Key', 'error')
+      return
+    }
+
+    markNovelAnalyzing(novel.id, true)
+    setStatusMessage('')
+
+    try {
+      const analysis = await generateNovelAnalysis({ apiKey, novel })
+      const updatedNovel = await updateNovelAnalysis(novel.id, analysis)
+
+      replaceNovel(updatedNovel)
+      showStatus(`《${novel.title}》AI 分析已完成`, 'success')
+    } catch (error) {
+      showStatus(getFriendlyAiErrorMessage(error), 'error')
+    } finally {
+      markNovelAnalyzing(novel.id, false)
+    }
+  }
+
+  async function handleBatchAnalyzeClick() {
+    if (isBatchAnalyzing) {
+      return
+    }
+
+    const candidates = unanalyzedDisplayedNovels
+
+    if (candidates.length === 0) {
+      showStatus('当前列表没有待分析小说', 'info')
+      return
+    }
+
+    const apiKey = await getSiliconFlowApiKey().catch(() => '')
+
+    setHasApiKey(Boolean(apiKey))
+
+    if (!apiKey) {
+      showStatus('请先填写并保存 SiliconFlow API Key', 'error')
+      return
+    }
+
+    setIsBatchAnalyzing(true)
+    showStatus(`准备分析 ${candidates.length} 条小说...`, 'info')
+
+    let successCount = 0
+    let failedCount = 0
+
+    for (const novel of candidates) {
+      markNovelAnalyzing(novel.id, true)
+
+      try {
+        const analysis = await generateNovelAnalysis({ apiKey, novel })
+        const updatedNovel = await updateNovelAnalysis(novel.id, analysis)
+
+        replaceNovel(updatedNovel)
+        successCount += 1
+      } catch {
+        failedCount += 1
+      } finally {
+        markNovelAnalyzing(novel.id, false)
+      }
+    }
+
+    setIsBatchAnalyzing(false)
+    showStatus(
+      `批量分析完成：成功 ${successCount} 条，失败 ${failedCount} 条`,
+      failedCount > 0 ? 'warning' : 'success',
+    )
+  }
+
+  function replaceNovel(updatedNovel) {
+    setNovels((currentNovels) =>
+      currentNovels.map((novel) =>
+        novel.id === updatedNovel.id ? updatedNovel : novel,
+      ),
+    )
+  }
+
+  function markNovelAnalyzing(novelId, analyzing) {
+    setAnalyzingNovelIds((currentIds) => {
+      const nextIds = new Set(currentIds)
+
+      if (analyzing) {
+        nextIds.add(novelId)
+      } else {
+        nextIds.delete(novelId)
+      }
+
+      return nextIds
+    })
+  }
+
   function showStatus(message, type) {
     setStatusMessage(message)
     setStatusType(type)
@@ -148,6 +321,42 @@ export default function NovelManager({ surface = 'page' }) {
         </div>
         <span className="novel-count">{novels.length} 条</span>
       </header>
+
+      <section className="api-key-panel" aria-label="SiliconFlow API Key 设置">
+        <div>
+          <h2>AI 分析</h2>
+          <p>
+            {isCheckingApiKey
+              ? '正在读取 API Key 状态'
+              : hasApiKey
+                ? 'SiliconFlow API Key 已保存'
+                : '保存 API Key 后可生成剧情、人设和题材标签'}
+          </p>
+        </div>
+        <form className="api-key-form" onSubmit={handleSaveApiKey}>
+          <input
+            type="password"
+            value={apiKeyInput}
+            onChange={(event) => setApiKeyInput(event.target.value)}
+            placeholder="输入 SiliconFlow API Key"
+            aria-label="SiliconFlow API Key"
+            autoComplete="off"
+          />
+          <div className="api-key-actions">
+            <button type="submit" disabled={isSavingApiKey}>
+              {isSavingApiKey ? '保存中' : '保存'}
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={handleClearApiKey}
+              disabled={isSavingApiKey || !hasApiKey}
+            >
+              清除
+            </button>
+          </div>
+        </form>
+      </section>
 
       <section className="manager-toolbar" aria-label="小说数据操作">
         <div className="search-input-wrap">
@@ -191,9 +400,29 @@ export default function NovelManager({ surface = 'page' }) {
             type="button"
             className="danger-button"
             onClick={handleClearClick}
-            disabled={novels.length === 0 || isImporting || isExporting}
+            disabled={
+              novels.length === 0 ||
+              isImporting ||
+              isExporting ||
+              isBatchAnalyzing
+            }
           >
             清空全部
+          </button>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={handleBatchAnalyzeClick}
+            disabled={
+              unanalyzedDisplayedNovels.length === 0 ||
+              isImporting ||
+              isExporting ||
+              isBatchAnalyzing
+            }
+          >
+            {isBatchAnalyzing
+              ? '批量分析中'
+              : `批量分析未分析小说 (${unanalyzedDisplayedNovels.length})`}
           </button>
         </div>
 
@@ -224,6 +453,8 @@ export default function NovelManager({ surface = 'page' }) {
               <NovelListItem
                 key={novel.id}
                 novel={novel}
+                isAnalyzing={analyzingNovelIds.has(novel.id)}
+                onAnalyze={() => handleAnalyzeNovel(novel)}
                 onDelete={() => handleDeleteClick(novel)}
               />
             ))}
@@ -238,7 +469,9 @@ export default function NovelManager({ surface = 'page' }) {
   )
 }
 
-function NovelListItem({ novel, onDelete }) {
+function NovelListItem({ novel, isAnalyzing, onAnalyze, onDelete }) {
+  const hasAnalysis = hasNovelAnalysis(novel)
+
   return (
     <article className="novel-item">
       <div className="novel-item-main">
@@ -271,7 +504,7 @@ function NovelListItem({ novel, onDelete }) {
 
         <p className="novel-intro">{novel.intro}</p>
 
-        {novel.summary ? <p className="novel-summary">{novel.summary}</p> : null}
+        {hasAnalysis ? <NovelAnalysisResult novel={novel} /> : null}
 
         {novel.tags?.length > 0 ? (
           <div className="tag-list" aria-label="标签">
@@ -282,6 +515,17 @@ function NovelListItem({ novel, onDelete }) {
             ))}
           </div>
         ) : null}
+
+        <div className="novel-actions">
+          <button
+            type="button"
+            className="secondary-button analysis-button"
+            onClick={onAnalyze}
+            disabled={isAnalyzing}
+          >
+            {isAnalyzing ? '分析中' : hasAnalysis ? '重新分析' : 'AI 分析'}
+          </button>
+        </div>
 
         <div className="novel-footer">
           <time dateTime={new Date(novel.updatedAt).toISOString()}>
@@ -300,6 +544,36 @@ function NovelListItem({ novel, onDelete }) {
         ×
       </button>
     </article>
+  )
+}
+
+function NovelAnalysisResult({ novel }) {
+  return (
+    <section className="analysis-result" aria-label="AI 分析结果">
+      {novel.summary ? <p className="novel-summary">{novel.summary}</p> : null}
+      <AnalysisTagGroup label="剧情" tags={novel.plotKeywords} />
+      <AnalysisTagGroup label="人设" tags={novel.characterTags} />
+      <AnalysisTagGroup label="题材" tags={novel.genreTags} />
+    </section>
+  )
+}
+
+function AnalysisTagGroup({ label, tags }) {
+  if (!Array.isArray(tags) || tags.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="analysis-tag-group">
+      <span className="analysis-tag-label">{label}</span>
+      <div className="tag-list">
+        {tags.map((tag) => (
+          <span className="tag analysis-tag" key={`${label}-${tag}`}>
+            {tag}
+          </span>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -323,6 +597,23 @@ function filterNovelsByKeyword(novels, query) {
 
     return searchableText.includes(keyword)
   })
+}
+
+function hasNovelAnalysis(novel) {
+  return Boolean(
+    novel.summary ||
+      novel.plotKeywords?.length > 0 ||
+      novel.characterTags?.length > 0 ||
+      novel.genreTags?.length > 0,
+  )
+}
+
+function getFriendlyAiErrorMessage(error) {
+  if (error instanceof Error && error.message) {
+    return error.message.replace(/(?:sk|sf)-[A-Za-z0-9_-]+/g, '***')
+  }
+
+  return 'AI 分析失败，请稍后重试'
 }
 
 function getSourceLabel(source) {
