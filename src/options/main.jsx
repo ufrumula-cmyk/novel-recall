@@ -4,6 +4,6 @@ import NovelManager from '../NovelManager'
 
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <NovelManager surface="page" />
+    <NovelManager mode="options" />
   </React.StrictMode>,
 )

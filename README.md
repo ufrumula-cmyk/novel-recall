@@ -1,6 +1,6 @@
 # Novel Recall
 
-Novel Recall 是一个本地优先的小说数据管理扩展。第一阶段完成小说元数据的本地导入、保存、检索、删除和导出；第二阶段可选接入 SiliconFlow Chat Completion，根据用户导入的小说元数据生成结构化摘要和标签。
+Novel Recall 是一个本地优先的小说数据管理扩展。第一阶段完成小说元数据的本地导入、保存、检索、删除和导出；第二阶段可选接入 SiliconFlow Chat Completion，根据用户导入的小说元数据生成结构化摘要和标签；第三阶段接入 SiliconFlow Embeddings，用本地 cosine similarity 做自然语言剧情语义搜索。
 
 ## 第一阶段范围
 
@@ -42,14 +42,43 @@ AI 返回格式：
 
 当前仍明确不包含：
 
-- 不生成 embedding。
-- 不做语义搜索。
 - 不做晋江、番茄、起点等页面适配。
 - 不写爬虫、反爬、破解、模拟登录或采集逻辑。
 - 不采集小说正文、免费章节正文、VIP/付费章节正文。
 - 不调用 App 私有接口。
 - 不从盗版小说站采集数据。
 - 不保存、展示、导出完整小说正文。
+
+## 第三阶段范围
+
+已实现：
+
+- 调用 SiliconFlow Embeddings 为小说生成向量。
+- 单条小说支持 `生成向量` 和 `重新生成向量`。
+- 支持批量生成当前列表中尚未生成的小说向量。
+- 向量写入 IndexedDB 的 `NovelItem.embedding` 字段。
+- 支持自然语言剧情语义搜索。
+- 语义搜索会为用户输入的 query 生成 embedding。
+- 本地使用 cosine similarity 计算 query embedding 与小说 embedding 的相似度。
+- 搜索结果按 similarity 从高到低展示，默认展示 Top 10。
+- 搜索结果显示 similarity 分数，例如 `0.823`。
+- 保留普通关键词搜索作为关键词模式。
+
+小说 embedding 文本由以下字段拼接：
+
+```text
+标题
+作者
+分类
+标签
+简介
+AI总结
+剧情关键词
+人设标签
+题材标签
+```
+
+不会拼接、生成、保存或展示小说正文、章节正文、免费章节正文或付费章节正文。
 
 ## 数据模型
 
@@ -126,7 +155,7 @@ novel-recall-export-YYYY-MM-DD.json
 
 导出内容是包含 `novels` 数组的 JSON 对象。导出只包含 NovelItem 字段，不包含 SiliconFlow API Key，不包含构建产物，也不包含完整小说正文。
 
-第二阶段生成的 `summary`、`plotKeywords`、`characterTags`、`genreTags` 属于 NovelItem 字段，会随小说数据一起导出。
+第二阶段生成的 `summary`、`plotKeywords`、`characterTags`、`genreTags` 属于 NovelItem 字段，会随小说数据一起导出。第三阶段生成的 `embedding` 也属于 NovelItem 字段，会随小说数据一起导出；UI 只显示“已生成向量”等状态，不展示完整 embedding 数组。
 
 ## 本地运行
 
@@ -172,7 +201,7 @@ D:\code\NovelRecall\dist
 ```text
 src/
   ai/
-    siliconflow.js        SiliconFlow Chat Completion 调用
+    siliconflow.js        SiliconFlow Chat Completion 与 Embeddings 调用
   NovelManager.jsx        小说管理与 AI 分析界面
   manifest.js             Chrome 扩展清单
   novel-manager.css       管理界面样式
@@ -185,7 +214,9 @@ src/
     main.jsx              Popup React 入口
   storage/
     settings.js           chrome.storage.local API Key 存储
-    novels.js             IndexedDB 小说存储、导入、导出、删除、清空、AI 结果更新
+    novels.js             IndexedDB 小说存储、导入、导出、删除、清空、AI 结果和向量更新
+  utils/
+    vector.js             本地 cosine similarity 计算
 ```
 
 ## 隐私与数据安全
@@ -194,7 +225,9 @@ src/
 - SiliconFlow API Key 保存在当前浏览器的 `chrome.storage.local`。
 - API Key 不会写入代码、README、IndexedDB 或导出 JSON。
 - 点击 AI 分析时，Novel Recall 会把该小说的 `title`、`author`、`category`、`status`、`tags`、`intro` 发送给 SiliconFlow Chat Completion，用于生成摘要和标签。
-- 除 SiliconFlow Chat Completion 外，Novel Recall 不会把小说简介发送给其他服务。
+- 点击生成向量时，Novel Recall 会把该小说的标题、作者、分类、标签、简介、AI 摘要和 AI 标签发送给 SiliconFlow Embeddings，用于生成小说 embedding。
+- 使用语义搜索时，Novel Recall 会把用户输入的剧情描述 query 发送给 SiliconFlow Embeddings，用于生成 query embedding。
+- 除 SiliconFlow Chat Completion 和 SiliconFlow Embeddings 外，Novel Recall 不会把小说简介或 query 发送给其他服务。
 - 当前阶段没有 background service worker 或 content script。
 - manifest 仅包含 `storage` 权限和 `https://api.siliconflow.cn/*` 这一项 host permission。
 - 当前阶段不会自动读取网页、不会自动索引网页、不会采集平台页面。

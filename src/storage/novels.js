@@ -105,6 +105,30 @@ export async function updateNovelAnalysis(novelId, analysis) {
   return updatedNovel
 }
 
+export async function updateNovelEmbedding(novelId, embedding) {
+  const db = await dbPromise
+  const existingNovel = await db.get(STORE_NAME, novelId)
+  const normalizedEmbedding = normalizeEmbedding(embedding)
+
+  if (!existingNovel) {
+    throw new Error('小说不存在')
+  }
+
+  if (normalizedEmbedding.length === 0) {
+    throw new Error('向量数据格式错误')
+  }
+
+  const updatedNovel = {
+    ...existingNovel,
+    embedding: normalizedEmbedding,
+    updatedAt: Date.now(),
+  }
+
+  await db.put(STORE_NAME, updatedNovel)
+
+  return updatedNovel
+}
+
 export async function importNovels(payload) {
   const rawNovels = getNovelArrayFromPayload(payload)
   const db = await dbPromise

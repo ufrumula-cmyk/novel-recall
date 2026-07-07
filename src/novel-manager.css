@@ -66,11 +66,11 @@ a:hover {
 }
 
 .novel-manager.popup {
-  width: 430px;
+  width: 380px;
   max-height: 640px;
-  min-height: 460px;
+  min-height: 420px;
   overflow: auto;
-  padding: 18px;
+  padding: 16px;
   background: #ffffff;
 }
 
@@ -86,6 +86,13 @@ a:hover {
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 8px;
 }
 
 .manager-header h1 {
@@ -117,9 +124,58 @@ a:hover {
   padding: 7px 9px;
 }
 
+.settings-icon-button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 1px solid #c9d1d9;
+  border-radius: 50%;
+  padding: 0;
+  background: #ffffff;
+  color: #475467;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.settings-icon-button:hover:not(:disabled) {
+  background: #edf2f7;
+  color: #172026;
+}
+
 .manager-toolbar {
   display: grid;
   gap: 10px;
+}
+
+.manager-section {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid #d0d7de;
+  padding-top: 18px;
+}
+
+.section-heading {
+  display: grid;
+  gap: 4px;
+}
+
+.section-heading h2 {
+  margin: 0;
+  color: #172026;
+  font-size: 17px;
+  line-height: 1.3;
+}
+
+.section-heading p {
+  margin: 0;
+  color: #687684;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.library-section {
+  gap: 14px;
 }
 
 .api-key-panel {
@@ -160,6 +216,79 @@ a:hover {
   position: relative;
 }
 
+.popup-search-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.popup-search-form {
+  display: grid;
+  gap: 10px;
+}
+
+.search-mode-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  border-radius: 8px;
+  background: #eef2f6;
+  padding: 4px;
+}
+
+.search-mode-button {
+  border: 0;
+  border-radius: 6px;
+  padding: 8px 8px;
+  background: transparent;
+  color: #475467;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.search-mode-button:hover:not(:disabled) {
+  background: #ffffff;
+  color: #172026;
+}
+
+.search-mode-button.active {
+  background: #ffffff;
+  color: #0969da;
+  box-shadow: 0 1px 2px rgb(16 24 40 / 10%);
+}
+
+.keyword-search-block {
+  display: grid;
+  gap: 6px;
+}
+
+.light-notice {
+  display: grid;
+  gap: 8px;
+  border-radius: 8px;
+  background: #fff8c5;
+  color: #5d4700;
+  font-size: 12px;
+  line-height: 1.45;
+  padding: 10px;
+}
+
+.compact-button {
+  width: fit-content;
+  padding: 7px 10px;
+  font-size: 12px;
+}
+
+.semantic-search-form {
+  display: grid;
+  gap: 8px;
+}
+
+.semantic-search-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
 input[type='search'],
 input[type='password'] {
   width: 100%;
@@ -187,6 +316,10 @@ input[type='password']:focus-visible {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+}
+
+.admin-actions {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
 }
 
 .secondary-button {
@@ -289,6 +422,15 @@ input[type='password']:focus-visible {
   border-radius: 8px;
   padding: 14px 42px 14px 14px;
   background: #ffffff;
+}
+
+.novel-item.compact {
+  padding: 12px;
+}
+
+.novel-item.compact .source-badge,
+.novel-item.compact .novel-footer {
+  display: none;
 }
 
 .novel-title-row {
@@ -396,12 +538,40 @@ input[type='password']:focus-visible {
 
 .novel-actions {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
   gap: 8px;
 }
 
 .analysis-button {
   width: auto;
+}
+
+.embedding-state {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: #f0f3f5;
+  color: #475467;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 7px 9px;
+}
+
+.embedding-state.ready {
+  background: #e6f2ed;
+  color: #265547;
+}
+
+.embedding-state.loading {
+  background: #fff8c5;
+  color: #5d4700;
+}
+
+.embedding-state.failed {
+  background: #ffebe9;
+  color: #82071e;
 }
 
 .delete-button {
@@ -438,6 +608,10 @@ input[type='password']:focus-visible {
   }
 
   .toolbar-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .semantic-search-actions {
     grid-template-columns: 1fr;
   }
 

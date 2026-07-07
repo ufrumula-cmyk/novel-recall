@@ -1,6 +1,9 @@
 const CHAT_COMPLETIONS_URL = 'https://api.siliconflow.cn/v1/chat/completions'
+const EMBEDDINGS_URL = 'https://api.siliconflow.cn/v1/embeddings'
 const CHAT_MODEL = 'deepseek-ai/DeepSeek-V3'
+const EMBEDDING_MODEL = 'BAAI/bge-m3'
 const MAX_INTRO_LENGTH = 3000
+const MAX_EMBEDDING_INPUT_LENGTH = 7000
 
 export async function generateNovelAnalysis({ apiKey, novel }) {
   const response = await fetch(CHAT_COMPLETIONS_URL, {
@@ -39,6 +42,39 @@ export async function generateNovelAnalysis({ apiKey, novel }) {
   }
 
   return parseNovelAnalysis(rawContent)
+}
+
+export async function generateEmbedding({ apiKey, text }) {
+  const input = cleanText(text).slice(0, MAX_EMBEDDING_INPUT_LENGTH)
+
+  if (!input) {
+    throw new Error('向量文本为空')
+  }
+
+  const response = await fetch(EMBEDDINGS_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: EMBEDDING_MODEL,
+      input,
+    }),
+  })
+
+  if (!response.ok) {
+    throw new Error(await getSiliconFlowErrorMessage(response))
+  }
+
+  const data = await response.json()
+  const embedding = data.data?.[0]?.embedding
+
+  if (!isNumberArray(embedding)) {
+    throw new Error('SiliconFlow 未返回有效向量')
+  }
+
+  return embedding
 }
 
 function buildNovelAnalysisPrompt(novel) {
@@ -119,6 +155,10 @@ function normalizeArray(value) {
         .filter(Boolean),
     ),
   ]
+}
+
+function isNumberArray(value) {
+  return Array.isArray(value) && value.every((item) => Number.isFinite(item))
 }
 
 async function getSiliconFlowErrorMessage(response) {

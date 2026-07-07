@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { generateNovelAnalysis } from './ai/siliconflow'
+import { generateEmbedding, generateNovelAnalysis } from './ai/siliconflow'
 import {
   clearNovels,
   deleteNovel,
@@ -7,15 +7,17 @@ import {
   getAllNovelsForExport,
   importNovels,
   updateNovelAnalysis,
+  updateNovelEmbedding,
 } from './storage/novels'
 import {
   clearSiliconFlowApiKey,
   getSiliconFlowApiKey,
   saveSiliconFlowApiKey,
 } from './storage/settings'
+import { cosineSimilarity } from './utils/vector'
 import './novel-manager.css'
 
-export default function NovelManager({ surface = 'page' }) {
+export default function NovelManager({ mode, surface = 'page' }) {
   const [novels, setNovels] = useState([])
   const [searchQuery, setSearchQuery] = useState('')
   const [statusMessage, setStatusMessage] = useState('')
@@ -29,6 +31,15 @@ export default function NovelManager({ surface = 'page' }) {
   const [isSavingApiKey, setIsSavingApiKey] = useState(false)
   const [analyzingNovelIds, setAnalyzingNovelIds] = useState(() => new Set())
   const [isBatchAnalyzing, setIsBatchAnalyzing] = useState(false)
+  const [embeddingNovelIds, setEmbeddingNovelIds] = useState(() => new Set())
+  const [embeddingFailedNovelIds, setEmbeddingFailedNovelIds] = useState(
+    () => new Set(),
+  )
+  const [isBatchEmbedding, setIsBatchEmbedding] = useState(false)
+  const [popupSearchMode, setPopupSearchMode] = useState('semantic')
+  const [semanticQuery, setSemanticQuery] = useState('')
+  const [semanticResults, setSemanticResults] = useState(null)
+  const [isSemanticSearching, setIsSemanticSearching] = useState(false)
   const fileInputRef = useRef(null)
 
   useEffect(() => {
@@ -36,15 +47,29 @@ export default function NovelManager({ surface = 'page' }) {
     loadApiKeyStatus()
   }, [])
 
-  const displayedNovels = useMemo(
+  const keywordFilteredNovels = useMemo(
     () => filterNovelsByKeyword(novels, searchQuery),
     [novels, searchQuery],
   )
+  const appMode = mode || (surface === 'popup' ? 'popup' : 'options')
+  const isPopupMode = appMode === 'popup'
+  const surfaceClass = isPopupMode ? 'popup' : 'page'
+  const hasUnembeddedNovels = novels.some((novel) => !hasNovelEmbedding(novel))
+  const hasEmbeddedNovels = novels.some(hasNovelEmbedding)
+  const isPopupSemanticMode = popupSearchMode === 'semantic'
+  const displayedNovels =
+    semanticResults ??
+    (isPopupMode && isPopupSemanticMode ? novels : keywordFilteredNovels)
   const unanalyzedDisplayedNovels = useMemo(
     () => displayedNovels.filter((novel) => !hasNovelAnalysis(novel)),
     [displayedNovels],
   )
-  const isSearchMode = searchQuery.trim().length > 0
+  const unembeddedDisplayedNovels = useMemo(
+    () => displayedNovels.filter((novel) => !hasNovelEmbedding(novel)),
+    [displayedNovels],
+  )
+  const isKeywordSearchMode = searchQuery.trim().length > 0
+  const isSemanticSearchMode = semanticResults !== null
 
   async function loadApiKeyStatus() {
     setIsCheckingApiKey(true)
@@ -128,6 +153,7 @@ export default function NovelManager({ surface = 'page' }) {
       const result = await importNovels(parsedPayload)
 
       await refreshNovels()
+      setSemanticResults(null)
       showStatus(
         `导入完成：新增 ${result.importedCount} 条，跳过 ${result.skippedCount} 条，失败 ${result.failedCount} 条`,
         result.failedCount > 0 ? 'warning' : 'success',
@@ -180,6 +206,11 @@ export default function NovelManager({ surface = 'page' }) {
       setNovels((currentNovels) =>
         currentNovels.filter((currentNovel) => currentNovel.id !== novel.id),
       )
+      setSemanticResults((currentResults) =>
+        currentResults
+          ? currentResults.filter((currentNovel) => currentNovel.id !== novel.id)
+          : currentResults,
+      )
       showStatus('已删除小说数据', 'success')
     } catch {
       showStatus('删除失败，请稍后重试', 'error')
@@ -199,9 +230,289 @@ export default function NovelManager({ surface = 'page' }) {
       await clearNovels()
       setNovels([])
       setSearchQuery('')
+      setSemanticQuery('')
+      setSemanticResults(null)
+      setEmbeddingFailedNovelIds(new Set())
       showStatus('已清空全部小说数据', 'success')
     } catch {
       showStatus('清空失败，请稍后重试', 'error')
+    }
+  }
+
+  function handleKeywordSearchChange(event) {
+    setSearchQuery(event.target.value)
+    setSemanticResults(null)
+  }
+
+  function handlePopupSearchModeClick(nextMode) {
+    setPopupSearchMode(nextMode)
+    setStatusMessage('')
+
+    if (nextMode === 'semantic') {
+      setSearchQuery('')
+    } else {
+      setSemanticQuery('')
+      setSemanticResults(null)
+    }
+  }
+
+  function handlePopupSearchInputChange(event) {
+    const nextValue = event.target.value
+
+    if (isPopupSemanticMode) {
+      setSemanticQuery(nextValue)
+      setSemanticResults(null)
+      return
+    }
+
+    setSearchQuery(nextValue)
+    setSemanticResults(null)
+  }
+
+  function handleClearPopupSearchInput() {
+    setStatusMessage('')
+
+    if (isPopupSemanticMode) {
+      setSemanticQuery('')
+      setSemanticResults(null)
+      return
+    }
+
+    setSearchQuery('')
+    setSemanticResults(null)
+  }
+
+  function handlePopupSearchSubmit(event) {
+    if (isPopupSemanticMode) {
+      handleSemanticSearchSubmit(event)
+      return
+    }
+
+    event.preventDefault()
+    setSemanticResults(null)
+
+    if (!searchQuery.trim()) {
+      showStatus('请输入关键词', 'error')
+      return
+    }
+
+    showStatus(`关键词检索完成，匹配 ${keywordFilteredNovels.length} 条`, 'success')
+  }
+
+  async function handleGenerateEmbedding(novel) {
+    if (embeddingNovelIds.has(novel.id)) {
+      return
+    }
+
+    const apiKey = await getSiliconFlowApiKey().catch(() => '')
+
+    setHasApiKey(Boolean(apiKey))
+
+    if (!apiKey) {
+      showStatus(
+        isPopupMode
+          ? '请先在设置页配置 SiliconFlow API Key'
+          : '请先填写并保存 SiliconFlow API Key',
+        'error',
+      )
+      return
+    }
+
+    const embeddingText = buildNovelEmbeddingText(novel)
+
+    if (!embeddingText) {
+      showStatus('小说数据不足，无法生成向量', 'error')
+      return
+    }
+
+    markNovelEmbedding(novel.id, true)
+    markNovelEmbeddingFailed(novel.id, false)
+    setStatusMessage('')
+
+    try {
+      const embedding = await generateEmbedding({
+        apiKey,
+        text: embeddingText,
+      })
+      const updatedNovel = await updateNovelEmbedding(novel.id, embedding)
+
+      replaceNovel(updatedNovel)
+      showStatus(`《${novel.title}》向量已生成`, 'success')
+    } catch (error) {
+      markNovelEmbeddingFailed(novel.id, true)
+      showStatus(getFriendlyApiErrorMessage(error), 'error')
+    } finally {
+      markNovelEmbedding(novel.id, false)
+    }
+  }
+
+  async function handleBatchEmbeddingClick() {
+    if (isBatchEmbedding) {
+      return
+    }
+
+    const candidates = unembeddedDisplayedNovels
+
+    if (candidates.length === 0) {
+      showStatus('当前列表没有待生成向量的小说', 'info')
+      return
+    }
+
+    const apiKey = await getSiliconFlowApiKey().catch(() => '')
+
+    setHasApiKey(Boolean(apiKey))
+
+    if (!apiKey) {
+      showStatus('请先填写并保存 SiliconFlow API Key', 'error')
+      return
+    }
+
+    setIsBatchEmbedding(true)
+    showStatus(`准备生成 ${candidates.length} 条小说向量...`, 'info')
+
+    let successCount = 0
+    let failedCount = 0
+    let skippedCount = 0
+
+    for (const novel of candidates) {
+      const embeddingText = buildNovelEmbeddingText(novel)
+
+      if (!embeddingText) {
+        skippedCount += 1
+        continue
+      }
+
+      markNovelEmbedding(novel.id, true)
+      markNovelEmbeddingFailed(novel.id, false)
+
+      try {
+        const embedding = await generateEmbedding({
+          apiKey,
+          text: embeddingText,
+        })
+        const updatedNovel = await updateNovelEmbedding(novel.id, embedding)
+
+        replaceNovel(updatedNovel)
+        successCount += 1
+      } catch {
+        markNovelEmbeddingFailed(novel.id, true)
+        failedCount += 1
+      } finally {
+        markNovelEmbedding(novel.id, false)
+      }
+    }
+
+    setIsBatchEmbedding(false)
+    showStatus(
+      `批量生成向量完成：成功 ${successCount} 条，失败 ${failedCount} 条，跳过 ${skippedCount} 条`,
+      failedCount > 0 ? 'warning' : 'success',
+    )
+  }
+
+  async function handleSemanticSearchSubmit(event) {
+    event.preventDefault()
+
+    const query = semanticQuery.trim()
+
+    if (!query) {
+      showStatus('请输入剧情描述', 'error')
+      return
+    }
+
+    const apiKey = await getSiliconFlowApiKey().catch(() => '')
+
+    setHasApiKey(Boolean(apiKey))
+
+    if (!apiKey) {
+      showStatus(
+        isPopupMode
+          ? '请先在设置页配置 SiliconFlow API Key'
+          : '请先填写并保存 SiliconFlow API Key',
+        'error',
+      )
+      return
+    }
+
+    const searchableNovels = novels.filter(hasNovelEmbedding)
+
+    if (searchableNovels.length === 0) {
+      setSemanticResults([])
+      showStatus(
+        isPopupMode
+          ? '暂无可语义搜索的小说，请到设置页批量生成向量'
+          : '暂无可语义搜索的小说，请先生成小说向量',
+        'warning',
+      )
+      return
+    }
+
+    setIsSemanticSearching(true)
+    setStatusMessage('')
+
+    try {
+      const queryEmbedding = await generateEmbedding({
+        apiKey,
+        text: query,
+      })
+      const results = searchableNovels
+        .map((novel) => ({
+          ...novel,
+          similarity: cosineSimilarity(queryEmbedding, novel.embedding),
+        }))
+        .sort((novelA, novelB) => novelB.similarity - novelA.similarity)
+        .slice(0, 10)
+
+      setSearchQuery('')
+      setSemanticResults(results)
+      showStatus(
+        results.length > 0
+          ? `语义搜索完成，展示 Top ${results.length}`
+          : '暂无语义搜索结果',
+        results.length > 0 ? 'success' : 'warning',
+      )
+    } catch (error) {
+      showStatus(getFriendlyApiErrorMessage(error), 'error')
+    } finally {
+      setIsSemanticSearching(false)
+    }
+  }
+
+  function handleClearSemanticSearch() {
+    setSemanticQuery('')
+    setSemanticResults(null)
+    setStatusMessage('')
+  }
+
+  function handleOpenSettingsClick() {
+    const runtimeApi = globalThis.chrome?.runtime
+
+    if (runtimeApi?.openOptionsPage) {
+      const openResult = runtimeApi.openOptionsPage()
+
+      if (openResult?.catch) {
+        openResult.catch(() => {
+          openOptionsFallback(runtimeApi)
+        })
+      }
+
+      return
+    }
+
+    openOptionsFallback(runtimeApi)
+  }
+
+  function openOptionsFallback(runtimeApi) {
+    const optionsUrl =
+      runtimeApi?.getURL?.('src/options/index.html') || 'src/options/index.html'
+
+    try {
+      const openedWindow = window.open(optionsUrl, '_blank', 'noopener,noreferrer')
+
+      if (!openedWindow) {
+        window.location.href = optionsUrl
+      }
+    } catch {
+      showStatus('无法打开设置页', 'error')
     }
   }
 
@@ -229,7 +540,7 @@ export default function NovelManager({ surface = 'page' }) {
       replaceNovel(updatedNovel)
       showStatus(`《${novel.title}》AI 分析已完成`, 'success')
     } catch (error) {
-      showStatus(getFriendlyAiErrorMessage(error), 'error')
+      showStatus(getFriendlyApiErrorMessage(error), 'error')
     } finally {
       markNovelAnalyzing(novel.id, false)
     }
@@ -291,6 +602,15 @@ export default function NovelManager({ surface = 'page' }) {
         novel.id === updatedNovel.id ? updatedNovel : novel,
       ),
     )
+    setSemanticResults((currentResults) =>
+      currentResults
+        ? currentResults.map((novel) =>
+            novel.id === updatedNovel.id
+              ? { ...updatedNovel, similarity: novel.similarity }
+              : novel,
+          )
+        : currentResults,
+    )
   }
 
   function markNovelAnalyzing(novelId, analyzing) {
@@ -307,30 +627,193 @@ export default function NovelManager({ surface = 'page' }) {
     })
   }
 
+  function markNovelEmbedding(novelId, generating) {
+    setEmbeddingNovelIds((currentIds) => {
+      const nextIds = new Set(currentIds)
+
+      if (generating) {
+        nextIds.add(novelId)
+      } else {
+        nextIds.delete(novelId)
+      }
+
+      return nextIds
+    })
+  }
+
+  function markNovelEmbeddingFailed(novelId, failed) {
+    setEmbeddingFailedNovelIds((currentIds) => {
+      const nextIds = new Set(currentIds)
+
+      if (failed) {
+        nextIds.add(novelId)
+      } else {
+        nextIds.delete(novelId)
+      }
+
+      return nextIds
+    })
+  }
+
   function showStatus(message, type) {
     setStatusMessage(message)
     setStatusType(type)
   }
 
+  if (isPopupMode) {
+    return (
+      <main className={`novel-manager ${surfaceClass}`}>
+        <header className="manager-header">
+          <div>
+            <h1>Novel Recall</h1>
+          </div>
+          <div className="header-actions">
+            <span className="novel-count">{novels.length} 条</span>
+            <button
+              type="button"
+              className="settings-icon-button"
+              aria-label="打开设置页"
+              title="打开设置页"
+              onClick={handleOpenSettingsClick}
+            >
+              ⚙
+            </button>
+          </div>
+        </header>
+
+        {!hasApiKey && !isCheckingApiKey ? (
+          <div className="light-notice" role="status">
+            <span>请先在设置页配置 SiliconFlow API Key</span>
+            <button
+              type="button"
+              className="secondary-button compact-button"
+              onClick={handleOpenSettingsClick}
+            >
+              打开设置页
+            </button>
+          </div>
+        ) : null}
+
+        {hasUnembeddedNovels ? (
+          <div className="light-notice">
+            <span>
+              {hasEmbeddedNovels
+                ? '部分小说尚未生成向量，请到设置页批量生成'
+                : '请先到设置页生成小说向量'}
+            </span>
+            <button
+              type="button"
+              className="secondary-button compact-button"
+              onClick={handleOpenSettingsClick}
+            >
+              打开设置页
+            </button>
+          </div>
+        ) : null}
+
+        <section className="popup-search-panel" aria-label="小说搜索">
+          <form
+            className="popup-search-form"
+            onSubmit={handlePopupSearchSubmit}
+          >
+            <div className="search-mode-switch" aria-label="搜索模式">
+              <button
+                type="button"
+                className={`search-mode-button ${
+                  isPopupSemanticMode ? 'active' : ''
+                }`}
+                aria-pressed={isPopupSemanticMode}
+                onClick={() => handlePopupSearchModeClick('semantic')}
+              >
+                剧情检索
+              </button>
+              <button
+                type="button"
+                className={`search-mode-button ${
+                  !isPopupSemanticMode ? 'active' : ''
+                }`}
+                aria-pressed={!isPopupSemanticMode}
+                onClick={() => handlePopupSearchModeClick('keyword')}
+              >
+                关键词检索
+              </button>
+            </div>
+            <div className="search-input-wrap">
+              <input
+                type="search"
+                value={isPopupSemanticMode ? semanticQuery : searchQuery}
+                onChange={handlePopupSearchInputChange}
+                placeholder={
+                  isPopupSemanticMode
+                    ? '请输入剧情描述，例如：女主重生回高中，男主暗恋她'
+                    : '搜索书名、作者、角色名、标签、简介关键词'
+                }
+                aria-label={isPopupSemanticMode ? '剧情检索' : '关键词检索'}
+              />
+              {(isPopupSemanticMode ? semanticQuery : searchQuery) ? (
+                <button
+                  type="button"
+                  className="icon-button search-clear-button"
+                  aria-label="清空搜索"
+                  title="清空搜索"
+                  onClick={handleClearPopupSearchInput}
+                >
+                  ×
+                </button>
+              ) : null}
+            </div>
+            <button
+              type="submit"
+              disabled={isPopupSemanticMode && isSemanticSearching}
+            >
+              {isPopupSemanticMode
+                ? isSemanticSearching
+                  ? '检索中'
+                  : '剧情检索'
+                : '关键词检索'}
+            </button>
+          </form>
+        </section>
+
+        {statusMessage ? (
+          <p className={`status-message ${statusType}`} role="status">
+            {statusMessage}
+          </p>
+        ) : null}
+
+        <NovelListSection
+          displayedNovels={displayedNovels}
+          isLoading={isLoading}
+          isKeywordSearchMode={isKeywordSearchMode}
+          isSemanticSearchMode={isSemanticSearchMode}
+          emptyLabel="暂无小说数据"
+          renderNovel={(novel) => (
+            <NovelListItem key={novel.id} novel={novel} compact />
+          )}
+        />
+      </main>
+    )
+  }
+
   return (
-    <main className={`novel-manager ${surface}`}>
+    <main className={`novel-manager ${surfaceClass}`}>
       <header className="manager-header">
         <div>
-          <h1>Novel Recall</h1>
-          <p>本地小说数据管理</p>
+          <h1>Novel Recall 设置</h1>
+          <p>本地小说管理后台</p>
         </div>
         <span className="novel-count">{novels.length} 条</span>
       </header>
 
-      <section className="api-key-panel" aria-label="SiliconFlow API Key 设置">
-        <div>
-          <h2>AI 分析</h2>
+      <section className="manager-section" aria-labelledby="settings-title">
+        <div className="section-heading">
+          <h2 id="settings-title">设置</h2>
           <p>
             {isCheckingApiKey
               ? '正在读取 API Key 状态'
               : hasApiKey
                 ? 'SiliconFlow API Key 已保存'
-                : '保存 API Key 后可生成剧情、人设和题材标签'}
+                : '保存 API Key 后可使用 AI 分析和语义搜索'}
           </p>
         </div>
         <form className="api-key-form" onSubmit={handleSaveApiKey}>
@@ -358,29 +841,12 @@ export default function NovelManager({ surface = 'page' }) {
         </form>
       </section>
 
-      <section className="manager-toolbar" aria-label="小说数据操作">
-        <div className="search-input-wrap">
-          <input
-            type="search"
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder="搜索标题、作者、简介、标签"
-            aria-label="搜索标题、作者、简介、标签"
-          />
-          {searchQuery ? (
-            <button
-              type="button"
-              className="icon-button search-clear-button"
-              aria-label="清空搜索"
-              title="清空搜索"
-              onClick={() => setSearchQuery('')}
-            >
-              ×
-            </button>
-          ) : null}
+      <section className="manager-section" aria-labelledby="data-title">
+        <div className="section-heading">
+          <h2 id="data-title">数据管理</h2>
+          <p>导入、导出和清空本地 IndexedDB 小说数据。</p>
         </div>
-
-        <div className="toolbar-actions">
+        <div className="toolbar-actions admin-actions">
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
@@ -404,28 +870,13 @@ export default function NovelManager({ surface = 'page' }) {
               novels.length === 0 ||
               isImporting ||
               isExporting ||
-              isBatchAnalyzing
+              isBatchAnalyzing ||
+              isBatchEmbedding
             }
           >
             清空全部
           </button>
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={handleBatchAnalyzeClick}
-            disabled={
-              unanalyzedDisplayedNovels.length === 0 ||
-              isImporting ||
-              isExporting ||
-              isBatchAnalyzing
-            }
-          >
-            {isBatchAnalyzing
-              ? '批量分析中'
-              : `批量分析未分析小说 (${unanalyzedDisplayedNovels.length})`}
-          </button>
         </div>
-
         <input
           ref={fileInputRef}
           type="file"
@@ -435,45 +886,156 @@ export default function NovelManager({ surface = 'page' }) {
         />
       </section>
 
+      <section className="manager-section" aria-labelledby="ai-title">
+        <div className="section-heading">
+          <h2 id="ai-title">AI 处理</h2>
+          <p>批量生成小说结构化标签和语义搜索向量。</p>
+        </div>
+        <div className="toolbar-actions admin-actions">
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={handleBatchAnalyzeClick}
+            disabled={
+              unanalyzedDisplayedNovels.length === 0 ||
+              isImporting ||
+              isExporting ||
+              isBatchAnalyzing ||
+              isBatchEmbedding
+            }
+          >
+            {isBatchAnalyzing
+              ? '批量分析中'
+              : `批量分析未分析小说 (${unanalyzedDisplayedNovels.length})`}
+          </button>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={handleBatchEmbeddingClick}
+            disabled={
+              unembeddedDisplayedNovels.length === 0 ||
+              isImporting ||
+              isExporting ||
+              isBatchAnalyzing ||
+              isBatchEmbedding
+            }
+          >
+            {isBatchEmbedding
+              ? '批量生成中'
+              : `批量生成未生成向量 (${unembeddedDisplayedNovels.length})`}
+          </button>
+        </div>
+      </section>
+
       {statusMessage ? (
         <p className={`status-message ${statusType}`} role="status">
           {statusMessage}
         </p>
       ) : null}
 
-      <section className="novel-list-section" aria-label="小说列表">
-        <div className="list-summary">
-          <span>{isSearchMode ? `匹配 ${displayedNovels.length} 条` : '全部小说'}</span>
-          {isLoading ? <span>读取中</span> : null}
+      <section className="manager-section library-section" aria-labelledby="library-title">
+        <div className="section-heading">
+          <h2 id="library-title">小说库</h2>
+          <p>查看、搜索、分析、生成向量和删除单条小说。</p>
+        </div>
+        <div className="search-input-wrap">
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={handleKeywordSearchChange}
+            placeholder="搜索标题、作者、简介、标签"
+            aria-label="搜索标题、作者、简介、标签"
+          />
+          {searchQuery ? (
+            <button
+              type="button"
+              className="icon-button search-clear-button"
+              aria-label="清空搜索"
+              title="清空搜索"
+              onClick={() => setSearchQuery('')}
+            >
+              ×
+            </button>
+          ) : null}
         </div>
 
-        {displayedNovels.length > 0 ? (
-          <div className="novel-list">
-            {displayedNovels.map((novel) => (
-              <NovelListItem
-                key={novel.id}
-                novel={novel}
-                isAnalyzing={analyzingNovelIds.has(novel.id)}
-                onAnalyze={() => handleAnalyzeNovel(novel)}
-                onDelete={() => handleDeleteClick(novel)}
-              />
-            ))}
-          </div>
-        ) : (
-          <div className="empty-state">
-            {isSearchMode ? '暂无匹配小说' : '暂无小说数据'}
-          </div>
-        )}
+        <NovelListSection
+          displayedNovels={displayedNovels}
+          isLoading={isLoading}
+          isKeywordSearchMode={isKeywordSearchMode}
+          isSemanticSearchMode={isSemanticSearchMode}
+          emptyLabel="暂无小说数据"
+          renderNovel={(novel) => (
+            <NovelListItem
+              key={novel.id}
+              novel={novel}
+              isAnalyzing={analyzingNovelIds.has(novel.id)}
+              isEmbedding={embeddingNovelIds.has(novel.id)}
+              embeddingFailed={embeddingFailedNovelIds.has(novel.id)}
+              onAnalyze={() => handleAnalyzeNovel(novel)}
+              onGenerateEmbedding={() => handleGenerateEmbedding(novel)}
+              onDelete={() => handleDeleteClick(novel)}
+              showManagementActions
+            />
+          )}
+        />
       </section>
     </main>
   )
 }
 
-function NovelListItem({ novel, isAnalyzing, onAnalyze, onDelete }) {
+function NovelListSection({
+  displayedNovels,
+  isLoading,
+  isKeywordSearchMode,
+  isSemanticSearchMode,
+  emptyLabel,
+  renderNovel,
+}) {
+  return (
+    <section className="novel-list-section" aria-label="小说列表">
+      <div className="list-summary">
+        <span>
+          {isSemanticSearchMode
+            ? `语义结果 ${displayedNovels.length} 条`
+            : isKeywordSearchMode
+              ? `匹配 ${displayedNovels.length} 条`
+              : '全部小说'}
+        </span>
+        {isLoading ? <span>读取中</span> : null}
+      </div>
+
+      {displayedNovels.length > 0 ? (
+        <div className="novel-list">{displayedNovels.map(renderNovel)}</div>
+      ) : (
+        <div className="empty-state">
+          {isSemanticSearchMode
+            ? '暂无语义搜索结果'
+            : isKeywordSearchMode
+              ? '暂无匹配小说'
+              : emptyLabel}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function NovelListItem({
+  novel,
+  isAnalyzing = false,
+  isEmbedding = false,
+  embeddingFailed = false,
+  onAnalyze,
+  onGenerateEmbedding,
+  onDelete,
+  showManagementActions = false,
+  compact = false,
+}) {
   const hasAnalysis = hasNovelAnalysis(novel)
+  const hasEmbedding = hasNovelEmbedding(novel)
 
   return (
-    <article className="novel-item">
+    <article className={`novel-item ${compact ? 'compact' : ''}`}>
       <div className="novel-item-main">
         <div className="novel-title-row">
           <h2>
@@ -500,11 +1062,16 @@ function NovelListItem({ novel, isAnalyzing, onAnalyze, onDelete }) {
           {novel.status ? <span>{novel.status}</span> : null}
           {novel.wordCount ? <span>{novel.wordCount}</span> : null}
           {novel.updateTime ? <span>{novel.updateTime}</span> : null}
+          {typeof novel.similarity === 'number' ? (
+            <span>相似度 {novel.similarity.toFixed(3)}</span>
+          ) : null}
         </div>
 
-        <p className="novel-intro">{novel.intro}</p>
+        <p className="novel-intro">
+          {compact ? getNovelPreviewText(novel) : novel.intro}
+        </p>
 
-        {hasAnalysis ? <NovelAnalysisResult novel={novel} /> : null}
+        {hasAnalysis && !compact ? <NovelAnalysisResult novel={novel} /> : null}
 
         {novel.tags?.length > 0 ? (
           <div className="tag-list" aria-label="标签">
@@ -516,16 +1083,43 @@ function NovelListItem({ novel, isAnalyzing, onAnalyze, onDelete }) {
           </div>
         ) : null}
 
-        <div className="novel-actions">
-          <button
-            type="button"
-            className="secondary-button analysis-button"
-            onClick={onAnalyze}
-            disabled={isAnalyzing}
-          >
-            {isAnalyzing ? '分析中' : hasAnalysis ? '重新分析' : 'AI 分析'}
-          </button>
-        </div>
+        {showManagementActions ? (
+          <div className="novel-actions">
+            <button
+              type="button"
+              className="secondary-button analysis-button"
+              onClick={onAnalyze}
+              disabled={isAnalyzing}
+            >
+              {isAnalyzing ? '分析中' : hasAnalysis ? '重新分析' : 'AI 分析'}
+            </button>
+            <button
+              type="button"
+              className="secondary-button analysis-button"
+              onClick={onGenerateEmbedding}
+              disabled={isEmbedding}
+            >
+              {isEmbedding ? '生成中' : hasEmbedding ? '重新生成向量' : '生成向量'}
+            </button>
+            <span
+              className={`embedding-state ${
+                isEmbedding
+                  ? 'loading'
+                  : embeddingFailed
+                    ? 'failed'
+                    : hasEmbedding
+                      ? 'ready'
+                      : 'empty'
+              }`}
+            >
+              {getEmbeddingStateLabel({
+                isEmbedding,
+                embeddingFailed,
+                hasEmbedding,
+              })}
+            </span>
+          </div>
+        ) : null}
 
         <div className="novel-footer">
           <time dateTime={new Date(novel.updatedAt).toISOString()}>
@@ -534,15 +1128,17 @@ function NovelListItem({ novel, isAnalyzing, onAnalyze, onDelete }) {
         </div>
       </div>
 
-      <button
-        type="button"
-        className="icon-button delete-button"
-        aria-label={`删除 ${novel.title}`}
-        title="删除"
-        onClick={onDelete}
-      >
-        ×
-      </button>
+      {showManagementActions ? (
+        <button
+          type="button"
+          className="icon-button delete-button"
+          aria-label={`删除 ${novel.title}`}
+          title="删除"
+          onClick={onDelete}
+        >
+          ×
+        </button>
+      ) : null}
     </article>
   )
 }
@@ -588,8 +1184,13 @@ function filterNovelsByKeyword(novels, query) {
     const searchableText = [
       novel.title,
       novel.author,
+      novel.category,
       novel.intro,
+      novel.summary,
       ...(Array.isArray(novel.tags) ? novel.tags : []),
+      ...(Array.isArray(novel.plotKeywords) ? novel.plotKeywords : []),
+      ...(Array.isArray(novel.characterTags) ? novel.characterTags : []),
+      ...(Array.isArray(novel.genreTags) ? novel.genreTags : []),
     ]
       .filter(Boolean)
       .join('\n')
@@ -608,12 +1209,68 @@ function hasNovelAnalysis(novel) {
   )
 }
 
-function getFriendlyAiErrorMessage(error) {
+function getNovelPreviewText(novel) {
+  const text =
+    typeof novel.summary === 'string' && novel.summary.trim()
+      ? novel.summary.trim()
+      : novel.intro || ''
+
+  return text.length > 140 ? `${text.slice(0, 140)}...` : text
+}
+
+function hasNovelEmbedding(novel) {
+  return Array.isArray(novel.embedding) && novel.embedding.length > 0
+}
+
+function buildNovelEmbeddingText(novel) {
+  return [
+    ['标题', novel.title],
+    ['作者', novel.author],
+    ['分类', novel.category],
+    ['标签', joinTextArray(novel.tags)],
+    ['简介', novel.intro],
+    ['AI总结', novel.summary],
+    ['剧情关键词', joinTextArray(novel.plotKeywords)],
+    ['人设标签', joinTextArray(novel.characterTags)],
+    ['题材标签', joinTextArray(novel.genreTags)],
+  ]
+    .map(([label, value]) => {
+      const text = typeof value === 'string' ? value.trim() : ''
+
+      return text ? `${label}：${text}` : ''
+    })
+    .filter(Boolean)
+    .join('\n')
+}
+
+function joinTextArray(value) {
+  return Array.isArray(value)
+    ? value
+        .filter((item) => typeof item === 'string' || typeof item === 'number')
+        .map((item) => String(item).trim())
+        .filter(Boolean)
+        .join('，')
+    : ''
+}
+
+function getEmbeddingStateLabel({ isEmbedding, embeddingFailed, hasEmbedding }) {
+  if (isEmbedding) {
+    return '生成中'
+  }
+
+  if (embeddingFailed) {
+    return '生成失败'
+  }
+
+  return hasEmbedding ? '已生成向量' : '未生成向量'
+}
+
+function getFriendlyApiErrorMessage(error) {
   if (error instanceof Error && error.message) {
     return error.message.replace(/(?:sk|sf)-[A-Za-z0-9_-]+/g, '***')
   }
 
-  return 'AI 分析失败，请稍后重试'
+  return '请求失败，请稍后重试'
 }
 
 function getSourceLabel(source) {
