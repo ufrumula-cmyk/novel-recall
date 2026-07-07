@@ -1,12 +1,15 @@
 import React, { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { generateArticleInsights } from '../ai/openai'
+import {
+  generateArticleEmbedding,
+  generateArticleInsights,
+} from '../ai/siliconflow'
 import {
   canExtractFromUrl,
   extractReadableContentFromTab,
 } from '../extraction/readability'
 import { clearArticles, getAllArticles, saveArticle } from '../storage/articles'
-import { getOpenAIApiKey } from '../storage/settings'
+import { getSiliconFlowApiKey } from '../storage/settings'
 import './style.css'
 
 function Popup() {
@@ -22,7 +25,7 @@ function Popup() {
         console.log('Recall: failed to load articles', error)
       })
 
-    getOpenAIApiKey()
+    getSiliconFlowApiKey()
       .then((apiKey) => {
         setHasApiKey(Boolean(apiKey))
       })
@@ -70,14 +73,20 @@ function Popup() {
         return
       }
 
-      const apiKey = await getOpenAIApiKey().catch(() => '')
+      const apiKey = await getSiliconFlowApiKey().catch(() => '')
       let aiFields = {
         summary: '',
         tags: [],
         aiStatus: 'skipped',
         aiError: '',
       }
-      let nextStatusMessage = '已保存当前页面，未配置 API Key，已跳过 AI 生成'
+      let embeddingFields = {
+        embedding: [],
+        embeddingStatus: 'skipped',
+        embeddingError: '',
+        embeddingModel: '',
+        embeddedAt: '',
+      }
 
       if (apiKey) {
         try {
@@ -94,7 +103,6 @@ function Popup() {
             aiStatus: 'completed',
             aiError: '',
           }
-          nextStatusMessage = '已保存当前页面并生成摘要'
         } catch (aiError) {
           aiFields = {
             summary: '',
@@ -102,7 +110,33 @@ function Popup() {
             aiStatus: 'failed',
             aiError: getFriendlyErrorMessage(aiError),
           }
-          nextStatusMessage = '已保存当前页面，但 AI 摘要生成失败'
+        }
+
+        try {
+          const embeddingResult = await generateArticleEmbedding({
+            apiKey,
+            title: extractedArticle.title || tab.title || '无标题页面',
+            summary: aiFields.summary,
+            tags: aiFields.tags,
+            excerpt: extractedArticle.excerpt,
+            content: extractedArticle.content,
+          })
+
+          embeddingFields = {
+            embedding: embeddingResult.embedding,
+            embeddingStatus: 'completed',
+            embeddingError: '',
+            embeddingModel: embeddingResult.embeddingModel,
+            embeddedAt: embeddingResult.embeddedAt,
+          }
+        } catch (embeddingError) {
+          embeddingFields = {
+            embedding: [],
+            embeddingStatus: 'failed',
+            embeddingError: getFriendlyErrorMessage(embeddingError),
+            embeddingModel: '',
+            embeddedAt: '',
+          }
         }
       }
 
@@ -113,11 +147,18 @@ function Popup() {
         excerpt: extractedArticle.excerpt,
         wordCount: extractedArticle.wordCount,
         ...aiFields,
+        ...embeddingFields,
       })
 
       setArticles(await getAllArticles())
       setHasApiKey(Boolean(apiKey))
-      setStatusMessage(nextStatusMessage)
+      setStatusMessage(
+        getSaveStatusMessage({
+          hasApiKey: Boolean(apiKey),
+          aiStatus: aiFields.aiStatus,
+          embeddingStatus: embeddingFields.embeddingStatus,
+        }),
+      )
     } catch (error) {
       console.log('Recall: failed to save article', error)
       setStatusMessage('当前页面正文提取失败')
@@ -183,7 +224,9 @@ function Popup() {
         </button>
       </div>
       {hasApiKey === false ? (
-        <p className="api-key-notice">未配置 API Key，后续 AI 功能不可用。</p>
+        <p className="api-key-notice">
+          未配置 SiliconFlow API Key，后续 AI 功能不可用。
+        </p>
       ) : null}
       {statusMessage ? (
         <p className="status-message" role="status">
@@ -216,7 +259,14 @@ function Popup() {
                   <p className="ai-status">AI 摘要生成失败</p>
                 ) : null}
                 {article.aiStatus === 'skipped' ? (
-                  <p className="ai-status">未配置 API Key，已跳过 AI 生成</p>
+                  <p className="ai-status">
+                    未配置 SiliconFlow API Key，已跳过 AI 生成
+                  </p>
+                ) : null}
+                {article.embeddingStatus ? (
+                  <p className="embedding-status">
+                    {getEmbeddingStatusLabel(article.embeddingStatus)}
+                  </p>
                 ) : null}
                 <div className="article-meta">
                   <time dateTime={article.createdAt}>
@@ -256,6 +306,38 @@ function getFriendlyErrorMessage(error) {
   }
 
   return 'AI 摘要生成失败'
+}
+
+function getSaveStatusMessage({ hasApiKey, aiStatus, embeddingStatus }) {
+  if (!hasApiKey) {
+    return '已保存当前页面，未配置 SiliconFlow API Key，已跳过 AI 生成'
+  }
+
+  if (aiStatus === 'completed' && embeddingStatus === 'completed') {
+    return '已保存当前页面，摘要和向量已生成'
+  }
+
+  if (aiStatus === 'completed' && embeddingStatus === 'failed') {
+    return '已保存当前页面并生成摘要，但向量生成失败'
+  }
+
+  if (aiStatus === 'failed' && embeddingStatus === 'completed') {
+    return '已保存当前页面，摘要生成失败，向量已生成'
+  }
+
+  return '已保存当前页面，但 AI 摘要或向量生成失败'
+}
+
+function getEmbeddingStatusLabel(status) {
+  if (status === 'completed') {
+    return '向量已生成'
+  }
+
+  if (status === 'failed') {
+    return '向量失败'
+  }
+
+  return '向量跳过'
 }
 
 createRoot(document.getElementById('root')).render(

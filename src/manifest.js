@@ -10,5 +10,5 @@ export default defineManifest({
     default_popup: 'src/popup/index.html',
   },
   options_page: 'src/options/index.html',
-  host_permissions: ['https://api.openai.com/*'],
+  host_permissions: ['https://api.siliconflow.cn/*'],
 })

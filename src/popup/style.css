@@ -130,7 +130,8 @@ button:disabled {
 .article-url,
 .article-excerpt,
 .article-summary,
-.ai-status {
+.ai-status,
+.embedding-status {
   margin: 0;
   overflow-wrap: anywhere;
   line-height: 1.45;
@@ -170,6 +171,11 @@ button:disabled {
 
 .ai-status {
   color: #8c6d1f;
+  font-size: 12px;
+}
+
+.embedding-status {
+  color: #0969da;
   font-size: 12px;
 }
 

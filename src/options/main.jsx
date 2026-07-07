@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import {
-  clearOpenAIApiKey,
-  getOpenAIApiKey,
-  saveOpenAIApiKey,
+  clearSiliconFlowApiKey,
+  getSiliconFlowApiKey,
+  saveSiliconFlowApiKey,
 } from '../storage/settings'
 import './style.css'
 
@@ -14,7 +14,7 @@ function OptionsPage() {
   const [isSaving, setIsSaving] = useState(false)
 
   useEffect(() => {
-    getOpenAIApiKey()
+    getSiliconFlowApiKey()
       .then(setApiKey)
       .catch(() => {
         setStatusType('error')
@@ -28,14 +28,14 @@ function OptionsPage() {
 
     if (!trimmedApiKey) {
       setStatusType('error')
-      setStatusMessage('请输入 API Key')
+      setStatusMessage('请输入 SiliconFlow API Key')
       return
     }
 
     setIsSaving(true)
 
     try {
-      await saveOpenAIApiKey(trimmedApiKey)
+      await saveSiliconFlowApiKey(trimmedApiKey)
       setApiKey(trimmedApiKey)
       setStatusType('success')
       setStatusMessage('保存成功')
@@ -51,7 +51,7 @@ function OptionsPage() {
     setIsSaving(true)
 
     try {
-      await clearOpenAIApiKey()
+      await clearSiliconFlowApiKey()
       setApiKey('')
       setStatusType('success')
       setStatusMessage('已清除')
@@ -68,14 +68,14 @@ function OptionsPage() {
       <section className="settings-panel" aria-labelledby="settings-title">
         <h1 id="settings-title">Recall 设置</h1>
         <form className="settings-form" onSubmit={handleSave}>
-          <label htmlFor="api-key">API Key</label>
+          <label htmlFor="api-key">SiliconFlow API Key</label>
           <input
             id="api-key"
             type="password"
             value={apiKey}
             onChange={(event) => setApiKey(event.target.value)}
             autoComplete="off"
-            placeholder="sk-..."
+            placeholder="请输入 SiliconFlow API Key"
           />
           <div className="button-row">
             <button type="submit" disabled={isSaving}>

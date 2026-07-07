@@ -1,20 +1,20 @@
-const OPENAI_API_KEY_STORAGE_KEY = 'openaiApiKey'
+const SILICONFLOW_API_KEY_STORAGE_KEY = 'siliconFlowApiKey'
 
-export async function getOpenAIApiKey() {
-  const result = await storageGet(OPENAI_API_KEY_STORAGE_KEY)
-  const apiKey = result[OPENAI_API_KEY_STORAGE_KEY]
+export async function getSiliconFlowApiKey() {
+  const result = await storageGet(SILICONFLOW_API_KEY_STORAGE_KEY)
+  const apiKey = result[SILICONFLOW_API_KEY_STORAGE_KEY]
 
   return typeof apiKey === 'string' ? apiKey : ''
 }
 
-export async function saveOpenAIApiKey(apiKey) {
+export async function saveSiliconFlowApiKey(apiKey) {
   await storageSet({
-    [OPENAI_API_KEY_STORAGE_KEY]: apiKey.trim(),
+    [SILICONFLOW_API_KEY_STORAGE_KEY]: apiKey.trim(),
   })
 }
 
-export async function clearOpenAIApiKey() {
-  await storageRemove(OPENAI_API_KEY_STORAGE_KEY)
+export async function clearSiliconFlowApiKey() {
+  await storageRemove(SILICONFLOW_API_KEY_STORAGE_KEY)
 }
 
 function getStorageArea() {

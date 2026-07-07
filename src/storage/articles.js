@@ -1,7 +1,7 @@
 import { openDB } from 'idb'
 
 const DB_NAME = 'recall-db'
-const DB_VERSION = 3
+const DB_VERSION = 4
 const STORE_NAME = 'articles'
 
 const dbPromise = openDB(DB_NAME, DB_VERSION, {
@@ -39,6 +39,11 @@ export async function saveArticle({
   tags = [],
   aiStatus = 'skipped',
   aiError = '',
+  embedding = [],
+  embeddingStatus = 'skipped',
+  embeddingError = '',
+  embeddingModel = '',
+  embeddedAt = '',
 }) {
   const db = await dbPromise
   const existing = await db.getFromIndex(STORE_NAME, 'url', url)
@@ -55,6 +60,11 @@ export async function saveArticle({
     tags,
     aiStatus,
     aiError,
+    embedding,
+    embeddingStatus,
+    embeddingError,
+    embeddingModel,
+    embeddedAt,
     createdAt,
   }
 
