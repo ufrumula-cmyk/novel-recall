@@ -78,3 +78,9 @@ export async function clearArticles() {
 
   await db.clear(STORE_NAME)
 }
+
+export async function deleteArticle(articleId) {
+  const db = await dbPromise
+
+  await db.delete(STORE_NAME, articleId)
+}

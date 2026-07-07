@@ -9,7 +9,12 @@ import {
   canExtractFromUrl,
   extractReadableContentFromTab,
 } from '../extraction/readability'
-import { clearArticles, getAllArticles, saveArticle } from '../storage/articles'
+import {
+  clearArticles,
+  deleteArticle,
+  getAllArticles,
+  saveArticle,
+} from '../storage/articles'
 import { getSiliconFlowApiKey } from '../storage/settings'
 import { cosineSimilarity } from '../utils/vector'
 import './style.css'
@@ -173,9 +178,14 @@ function Popup() {
   }
 
   const handleClearClick = () => {
+    if (!window.confirm('确定要清空全部收藏吗？此操作不可恢复。')) {
+      return
+    }
+
     clearArticles()
       .then(() => {
         setArticles([])
+        setSearchResults((currentResults) => (currentResults ? [] : null))
         setStatusMessage('已清空收藏')
       })
       .catch((error) => {
@@ -191,6 +201,28 @@ function Popup() {
 
     if (!nextQuery.trim()) {
       setSearchResults(null)
+      setStatusMessage('')
+    }
+  }
+
+  const handleDeleteArticleClick = async (articleId) => {
+    if (!window.confirm('确定删除这条收藏吗？')) {
+      return
+    }
+
+    try {
+      await deleteArticle(articleId)
+      const nextArticles = await getAllArticles()
+
+      setArticles(nextArticles)
+      setSearchResults((currentResults) =>
+        currentResults
+          ? currentResults.filter((article) => article.id !== articleId)
+          : null,
+      )
+      setStatusMessage('已删除收藏')
+    } catch {
+      setStatusMessage('删除收藏失败，请稍后重试')
     }
   }
 
@@ -318,28 +350,40 @@ function Popup() {
           <h1>Recall</h1>
           <p>本地收藏</p>
         </div>
-        <span className="article-count">{articleCountLabel}</span>
-      </header>
-      <form className="search-form" onSubmit={handleSearchSubmit}>
-        <input
-          type="search"
-          value={searchQuery}
-          onChange={handleSearchQueryChange}
-          placeholder="用自然语言搜索收藏内容"
-          aria-label="搜索收藏内容"
-        />
-        <div className="search-actions">
-          <button type="submit" disabled={isSearching}>
-            {isSearching ? '搜索中...' : '搜索'}
-          </button>
+        <div className="header-actions">
+          <span className="article-count">{articleCountLabel}</span>
           <button
             type="button"
-            className="secondary-button"
-            onClick={handleClearSearchClick}
-            disabled={isSearching || (!searchQuery && searchResults === null)}
+            className="settings-icon-button"
+            aria-label="打开设置"
+            title="打开设置"
+            onClick={handleOpenSettingsClick}
           >
-            清空搜索
+            ⚙
           </button>
+        </div>
+      </header>
+      <form className="search-form" onSubmit={handleSearchSubmit}>
+        <div className="search-input-wrap">
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={handleSearchQueryChange}
+            placeholder="用自然语言搜索收藏内容"
+            aria-label="搜索收藏内容"
+          />
+          {searchQuery || searchResults !== null ? (
+            <button
+              type="button"
+              className="search-clear-button"
+              aria-label="清空搜索"
+              title="清空搜索"
+              onClick={handleClearSearchClick}
+              disabled={isSearching}
+            >
+              ×
+            </button>
+          ) : null}
         </div>
       </form>
       <div className="actions">
@@ -348,18 +392,11 @@ function Popup() {
         </button>
         <button
           type="button"
-          className="secondary-button"
+          className="danger-button"
           onClick={handleClearClick}
           disabled={articles.length === 0}
         >
           清空收藏
-        </button>
-        <button
-          type="button"
-          className="secondary-button"
-          onClick={handleOpenSettingsClick}
-        >
-          打开设置
         </button>
       </div>
       {hasApiKey === false ? (
@@ -377,6 +414,18 @@ function Popup() {
           <div className="favorite-list">
             {displayedArticles.map((article) => (
               <article className="favorite-item" key={article.id}>
+                <button
+                  type="button"
+                  className="delete-article-button"
+                  aria-label="删除收藏"
+                  title="删除收藏"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    handleDeleteArticleClick(article.id)
+                  }}
+                >
+                  ×
+                </button>
                 <button
                   type="button"
                   className="article-title-button"
@@ -422,13 +471,6 @@ function Popup() {
                     <span>相似度 {article.similarity.toFixed(2)}</span>
                   ) : null}
                 </div>
-                <button
-                  type="button"
-                  className="open-article-button"
-                  onClick={() => handleOpenArticleClick(article.url)}
-                >
-                  打开原网页
-                </button>
               </article>
             ))}
           </div>
