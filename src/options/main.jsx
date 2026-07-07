@@ -1,5 +1,9 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import {
+  getAllArticlesForExport,
+  importArticles,
+} from '../storage/articles'
 import {
   clearSiliconFlowApiKey,
   getAutoIndexEnabled,
@@ -16,6 +20,11 @@ function OptionsPage() {
   const [isSaving, setIsSaving] = useState(false)
   const [isSavingAutoIndex, setIsSavingAutoIndex] = useState(false)
   const [autoIndexEnabled, setAutoIndexEnabled] = useState(false)
+  const [backupStatusMessage, setBackupStatusMessage] = useState('')
+  const [backupStatusType, setBackupStatusType] = useState('info')
+  const [isExporting, setIsExporting] = useState(false)
+  const [isImporting, setIsImporting] = useState(false)
+  const fileInputRef = useRef(null)
 
   useEffect(() => {
     Promise.all([getSiliconFlowApiKey(), getAutoIndexEnabled()])
@@ -90,6 +99,73 @@ function OptionsPage() {
     }
   }
 
+  const handleExportArticles = async () => {
+    setIsExporting(true)
+    setBackupStatusMessage('')
+
+    try {
+      const articles = await getAllArticlesForExport()
+      const exportContent = JSON.stringify(articles, null, 2)
+      const blob = new Blob([exportContent], {
+        type: 'application/json;charset=utf-8',
+      })
+      const downloadUrl = URL.createObjectURL(blob)
+      const downloadLink = document.createElement('a')
+
+      downloadLink.href = downloadUrl
+      downloadLink.download = `recall-export-${getTodayString()}.json`
+      document.body.append(downloadLink)
+      downloadLink.click()
+      downloadLink.remove()
+      URL.revokeObjectURL(downloadUrl)
+
+      setBackupStatusType('success')
+      setBackupStatusMessage(`已导出 ${articles.length} 条收藏`)
+    } catch {
+      setBackupStatusType('error')
+      setBackupStatusMessage('导出失败，请稍后重试')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  const handleImportClick = () => {
+    fileInputRef.current?.click()
+  }
+
+  const handleImportFileChange = async (event) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+
+    if (!file) {
+      return
+    }
+
+    if (!window.confirm('导入数据会合并到当前收藏中，确定继续吗？')) {
+      return
+    }
+
+    setIsImporting(true)
+    setBackupStatusMessage('')
+
+    try {
+      const fileContent = await file.text()
+      const parsedContent = JSON.parse(fileContent)
+      const articles = normalizeImportedPayload(parsedContent)
+      const result = await importArticles(articles)
+
+      setBackupStatusType('success')
+      setBackupStatusMessage(
+        `导入完成：成功 ${result.importedCount} 条，跳过重复 ${result.skippedCount} 条，失败 ${result.failedCount} 条`,
+      )
+    } catch {
+      setBackupStatusType('error')
+      setBackupStatusMessage('导入文件格式错误，请选择 Recall 导出的 JSON 文件')
+    } finally {
+      setIsImporting(false)
+    }
+  }
+
   return (
     <main className="options-page">
       <section className="settings-panel" aria-labelledby="settings-title">
@@ -140,6 +216,43 @@ function OptionsPage() {
             </span>
           </label>
         </section>
+        <section className="backup-setting" aria-labelledby="backup-title">
+          <div>
+            <h2 id="backup-title">数据备份</h2>
+            <p>
+              导出和导入本地收藏文章数据。导出文件不包含 SiliconFlow API Key。
+            </p>
+          </div>
+          <div className="backup-actions">
+            <button
+              type="button"
+              onClick={handleExportArticles}
+              disabled={isExporting || isImporting}
+            >
+              {isExporting ? '正在导出...' : '导出收藏数据'}
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={handleImportClick}
+              disabled={isExporting || isImporting}
+            >
+              {isImporting ? '正在导入...' : '导入收藏数据'}
+            </button>
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/json,.json"
+            className="hidden-file-input"
+            onChange={handleImportFileChange}
+          />
+          {backupStatusMessage ? (
+            <p className={`status-message ${backupStatusType}`} role="status">
+              {backupStatusMessage}
+            </p>
+          ) : null}
+        </section>
         {statusMessage ? (
           <p className={`status-message ${statusType}`} role="status">
             {statusMessage}
@@ -148,6 +261,22 @@ function OptionsPage() {
       </section>
     </main>
   )
+}
+
+function normalizeImportedPayload(payload) {
+  if (Array.isArray(payload)) {
+    return payload
+  }
+
+  if (Array.isArray(payload?.articles)) {
+    return payload.articles
+  }
+
+  throw new Error('Invalid Recall export file')
+}
+
+function getTodayString() {
+  return new Date().toISOString().slice(0, 10)
 }
 
 createRoot(document.getElementById('root')).render(

@@ -95,7 +95,8 @@ button:disabled {
   opacity: 0.55;
 }
 
-.auto-index-setting {
+.auto-index-setting,
+.backup-setting {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -105,19 +106,41 @@ button:disabled {
   padding-top: 24px;
 }
 
-.auto-index-setting h2 {
+.auto-index-setting h2,
+.backup-setting h2 {
   margin: 0;
   color: #172026;
   font-size: 18px;
   line-height: 1.3;
 }
 
-.auto-index-setting p {
+.auto-index-setting p,
+.backup-setting > div > p {
   max-width: 380px;
   margin: 6px 0 0;
   color: #687684;
   font-size: 14px;
   line-height: 1.5;
+}
+
+.backup-setting {
+  align-items: flex-start;
+}
+
+.backup-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.hidden-file-input {
+  display: none;
+}
+
+.backup-setting .status-message {
+  flex-basis: 100%;
+  margin: 0;
 }
 
 .toggle-control {
@@ -195,8 +218,13 @@ button:disabled {
 }
 
 @media (max-width: 520px) {
-  .auto-index-setting {
+  .auto-index-setting,
+  .backup-setting {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .backup-actions {
+    width: 100%;
   }
 }
