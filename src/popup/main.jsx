@@ -285,12 +285,41 @@ function Popup() {
     }
   }
 
+  const handleOpenArticleClick = (url) => {
+    if (!isValidHttpUrl(url)) {
+      setStatusMessage('无法打开原网页：URL 无效')
+      return
+    }
+
+    const tabsApi = globalThis.chrome?.tabs
+
+    if (!tabsApi?.create) {
+      setStatusMessage('当前浏览器不支持打开新标签页')
+      return
+    }
+
+    tabsApi.create({ url }, () => {
+      const error = globalThis.chrome?.runtime?.lastError
+
+      if (error) {
+        setStatusMessage('打开原网页失败')
+      }
+    })
+  }
+
   const isSearchMode = searchResults !== null
   const displayedArticles = isSearchMode ? searchResults : articles
+  const articleCountLabel = `${articles.length} 篇`
 
   return (
     <main className="popup">
-      <h1>Recall</h1>
+      <header className="popup-header">
+        <div>
+          <h1>Recall</h1>
+          <p>本地收藏</p>
+        </div>
+        <span className="article-count">{articleCountLabel}</span>
+      </header>
       <form className="search-form" onSubmit={handleSearchSubmit}>
         <input
           type="search"
@@ -348,7 +377,13 @@ function Popup() {
           <div className="favorite-list">
             {displayedArticles.map((article) => (
               <article className="favorite-item" key={article.id}>
-                <h2>{article.title}</h2>
+                <button
+                  type="button"
+                  className="article-title-button"
+                  onClick={() => handleOpenArticleClick(article.url)}
+                >
+                  {article.title}
+                </button>
                 <p className="article-url">{article.url}</p>
                 {article.excerpt ? (
                   <p className="article-excerpt">{article.excerpt}</p>
@@ -387,6 +422,13 @@ function Popup() {
                     <span>相似度 {article.similarity.toFixed(2)}</span>
                   ) : null}
                 </div>
+                <button
+                  type="button"
+                  className="open-article-button"
+                  onClick={() => handleOpenArticleClick(article.url)}
+                >
+                  打开原网页
+                </button>
               </article>
             ))}
           </div>
@@ -421,6 +463,16 @@ function getFriendlyErrorMessage(error) {
   }
 
   return 'AI 摘要生成失败'
+}
+
+function isValidHttpUrl(url) {
+  try {
+    const parsedUrl = new URL(url)
+
+    return parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:'
+  } catch {
+    return false
+  }
 }
 
 function getSaveStatusMessage({ hasApiKey, aiStatus, embeddingStatus }) {
