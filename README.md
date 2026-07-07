@@ -1,108 +1,114 @@
-# Recall
+# Novel Recall
 
-Recall 是一个本地优先的 Chrome 扩展，用于保存网页、抽取正文、生成摘要与标签，并支持基于本地向量的自然语言搜索。
+Novel Recall 是一个本地优先的小说数据管理扩展。第一阶段只做小说元数据的本地导入、保存、检索、删除和导出，不接入 AI 服务，不读取网页正文，也不保存完整小说正文。
 
-项目基于 Manifest V3、Vite、React、CRXJS、IndexedDB、Readability 和 SiliconFlow API 构建，适合作为浏览器扩展、AI 应用、本地数据管理和语义搜索方向的展示项目。
+## 第一阶段范围
 
-## 项目简介
+已实现：
 
-Recall 的核心思路是把用户浏览过的高价值网页保存成本地知识库：
+- NovelItem 小说数据模型。
+- 使用 IndexedDB 保存小说数据。
+- 导入 JSON 小说数据。
+- 导出 JSON 小说数据。
+- 展示本地小说列表。
+- 按 `title`、`author`、`intro`、`tags` 做普通关键词搜索。
+- 删除单条小说数据。
+- 清空全部小说数据，清空前需要二次确认。
 
-- 网页正文保存在浏览器本地 IndexedDB 中。
-- 摘要、标签和向量由 SiliconFlow API 生成。
-- 搜索时只调用一次 query embedding，本地完成 cosine similarity 排序。
-- 自动索引默认关闭，只在用户主动开启后处理普通网页。
-- API Key 存储在 `chrome.storage.local`，不写入代码，也不保存到 IndexedDB。
+明确不包含：
 
-## 核心功能
+- 不接入 SiliconFlow。
+- 不调用 Chat Completion。
+- 不生成 embedding。
+- 不做语义搜索。
+- 不做晋江、番茄、起点等页面适配。
+- 不写爬虫、反爬、破解、模拟登录或采集逻辑。
+- 不采集小说正文、免费章节正文、VIP/付费章节正文。
+- 不调用 App 私有接口。
+- 不从盗版小说站采集数据。
+- 不保存、展示、导出完整小说正文。
 
-- 保存当前 Chrome 标签页的标题和 URL。
-- 支持用户开启后的自动索引模式，浏览普通网页时自动保存内容页。
-- Popup 显示最近一次自动索引状态，方便判断页面为什么保存、跳过或失败。
-- 使用 `@mozilla/readability` 抽取网页正文。
-- 使用 IndexedDB 持久化保存文章。
-- 使用 SiliconFlow Chat Completions 生成中文摘要和标签。
-- 使用 SiliconFlow Embeddings 生成文章向量。
-- 使用自然语言搜索已收藏内容。
-- 在本地计算 cosine similarity 并展示 Top 5 结果。
-- 支持按来源筛选全部收藏、手动收藏和自动索引。
-- 支持打开原网页和删除单条收藏。
-- 支持本地导出和导入收藏数据。
-- 在 Options Page 中配置和清除 SiliconFlow API Key。
+## 数据模型
 
-## 技术栈
-
-- Chrome Extension Manifest V3
-- Vite
-- React
-- CRXJS
-- IndexedDB
-- `idb`
-- `@mozilla/readability`
-- SiliconFlow Chat Completions API
-- SiliconFlow Embeddings API
-
-## 项目架构
-
-```text
-src/
-  ai/
-    siliconflow.js        SiliconFlow 摘要、标签、向量接口
-  auto-index/
-    extract.js            自动索引保守正文抽取
-    messages.js           自动索引消息类型
-    rules.js              自动索引过滤规则与阈值
-  background/
-    index.js              自动索引后台保存与 AI 生成
-  content/
-    auto-index.js         页面停留后的自动正文抽取
-  extraction/
-    readability.js        页面 DOM 快照与正文抽取
-  options/
-    index.html            设置页 HTML 入口
-    main.jsx              设置页 React 逻辑
-    style.css             设置页样式
-  popup/
-    index.html            Popup HTML 入口
-    main.jsx              Popup 主流程与交互
-    style.css             Popup 样式
-  storage/
-    articles.js           IndexedDB 文章存储
-    settings.js           chrome.storage.local 设置存储
-  utils/
-    vector.js             cosine similarity 工具
-  manifest.js             Chrome 扩展清单
+```ts
+export interface NovelItem {
+  id: string;
+  title: string;
+  author?: string;
+  platform?: string;
+  url?: string;
+  intro: string;
+  tags?: string[];
+  category?: string;
+  status?: string;
+  wordCount?: string;
+  updateTime?: string;
+  summary?: string;
+  plotKeywords?: string[];
+  characterTags?: string[];
+  genreTags?: string[];
+  embedding?: number[];
+  source: "import" | "manual" | "web";
+  createdAt: number;
+  updatedAt: number;
+}
 ```
 
-## 功能流程
+当前代码中的类型声明位于 `src/novel.d.ts`。运行时存储逻辑位于 `src/storage/novels.js`。
 
-1. 用户在 popup 中点击 `保存当前页面`。
-2. 扩展读取当前 active tab 的 `title` 和 `url`。
-3. 扩展通过 `chrome.scripting.executeScript` 获取当前页面 DOM 快照。
-4. Readability 从 DOM 中抽取正文纯文本。
-5. 文章基础信息写入 IndexedDB，包括 `title`、`url`、`content`、`excerpt` 和 `wordCount`。
-6. 如果已配置 SiliconFlow API Key，继续生成 `summary`、`tags` 和 `embedding`。
-7. Popup 展示收藏列表、摘要、标签、向量状态和保存时间。
-8. 用户输入自然语言搜索时，Recall 生成 query embedding。
-9. 本地计算 query embedding 与文章 embedding 的 cosine similarity。
-10. 按相似度排序展示 Top 5 搜索结果。
+## JSON 导入格式
 
-自动索引流程：
+导入文件可以是 NovelItem 数组：
 
-1. 用户在 Options Page 中主动开启 `自动索引模式`。
-2. Content script 只在普通 `http://` 和 `https://` 页面运行。
-3. 页面停留超过 15 秒后，Recall 使用保守正文抽取策略读取 `article`、`main`、`[role="main"]` 或 `body` 文本。
-4. 正文少于 500 字、重复 URL、本地地址或敏感页面会被跳过。
-5. Background service worker 再次检查开关和 URL 去重后写入 IndexedDB。
-6. 如果已配置 SiliconFlow API Key，自动生成摘要、标签和向量。
-7. 最近一次自动索引状态会保存到 `chrome.storage.local`，并展示在 popup 中。
+```json
+[
+  {
+    "id": "novel-example-001",
+    "title": "示例小说",
+    "author": "某作者",
+    "platform": "本地整理",
+    "url": "https://example.com/novel/1",
+    "intro": "这里是小说简介，不是正文。",
+    "tags": ["仙侠", "群像"],
+    "category": "男频",
+    "status": "连载",
+    "wordCount": "120万字",
+    "updateTime": "2026-07-07",
+    "source": "import",
+    "createdAt": 1783429200000,
+    "updatedAt": 1783429200000
+  }
+]
+```
 
-## 本地运行方式
+也可以是包含 `novels` 数组的对象：
+
+```json
+{
+  "app": "Novel Recall",
+  "schemaVersion": 1,
+  "novels": []
+}
+```
+
+导入时会按白名单字段写入 IndexedDB。未知字段会被忽略，`content`、`chapters`、正文文本等字段不会进入当前数据模型。
+
+## JSON 导出格式
+
+导出文件名类似：
+
+```text
+novel-recall-export-YYYY-MM-DD.json
+```
+
+导出内容是包含 `novels` 数组的 JSON 对象。导出只包含 NovelItem 字段，不包含 API Key，不包含构建产物，也不包含完整小说正文。
+
+## 本地运行
 
 安装依赖：
 
 ```powershell
-cd D:\code\Recall
+cd D:\code\NovelRecall
 npm install
 ```
 
@@ -121,124 +127,57 @@ npm run build
 构建产物会输出到：
 
 ```text
-D:\code\Recall\dist
+D:\code\NovelRecall\dist
 ```
+
+`dist/` 不应提交到 Git。
 
 ## Chrome 加载方式
 
 1. 打开 `chrome://extensions`。
 2. 开启右上角的“开发者模式”。
 3. 点击“加载已解压的扩展程序”。
-4. 选择 `D:\code\Recall\dist`。
-5. 点击浏览器工具栏中的 Recall 图标打开 popup。
+4. 选择 `D:\code\NovelRecall\dist`。
+5. 点击浏览器工具栏中的 Novel Recall 图标打开管理界面。
 
 每次重新执行 `npm run build` 后，需要在 `chrome://extensions` 中刷新扩展。
 
-## 使用说明
+## 项目结构
 
-- 保存网页：打开目标网页，点击 Recall popup 中的 `保存当前页面`。
-- 打开网页：在收藏列表或搜索结果中点击文章标题。
-- 来源筛选：在 popup 中选择 `全部收藏`、`手动收藏` 或 `自动索引`。
-- 搜索收藏：在搜索框输入自然语言问题，按 Enter 执行搜索。
-- 退出搜索：点击搜索框右侧的 `×`，或清空输入内容，可退出搜索状态并恢复完整收藏列表。
-- 删除单条收藏：点击文章卡片右上角的 `×`，确认后会从本地 IndexedDB 删除该条记录。
-- 清空全部收藏：点击 `清空收藏`，清空前会二次确认。
-- 自动索引：点击右上角齿轮图标打开设置，开启 `自动索引模式` 后，普通内容页停留超过 15 秒会尝试自动保存。
-- 自动索引状态：popup 会显示最近一次自动索引的成功、跳过或失败原因。
-- 导出收藏：在设置页的 `数据备份` 区域点击 `导出收藏数据`。
-- 导入收藏：在设置页的 `数据备份` 区域点击 `导入收藏数据`，选择 Recall 导出的 JSON 文件，确认后会合并到当前收藏。
+```text
+src/
+  NovelManager.jsx        第一阶段小说管理界面
+  manifest.js             Chrome 扩展清单
+  novel-manager.css       管理界面样式
+  novel.d.ts              NovelItem 类型声明
+  options/
+    index.html            Options HTML 入口
+    main.jsx              Options React 入口
+  popup/
+    index.html            Popup HTML 入口
+    main.jsx              Popup React 入口
+  storage/
+    novels.js             IndexedDB 小说存储、导入、导出、删除、清空
+```
 
-## API Key 配置说明
+## 隐私与数据安全
 
-Recall 使用 SiliconFlow API 生成摘要、标签和向量。
-自动索引保存成功后，如果已配置 API Key，也会调用 SiliconFlow API，可能产生用量消耗。
+- 小说数据保存在当前浏览器本地 IndexedDB。
+- 当前阶段不需要 API Key，也没有 API Key 输入框。
+- 当前阶段没有 background service worker、content script 或 host permissions。
+- 当前阶段不会自动读取网页、不会自动索引网页、不会调用外部 AI API。
+- 导入和导出只处理用户手动选择或保存的 JSON 文件。
 
-配置方式：
+## Git 忽略项
 
-1. 打开 Recall popup。
-2. 点击右上角齿轮图标打开设置。
-3. 输入 SiliconFlow API Key。
-4. 点击 `保存`。
-
-存储说明：
-
-- API Key 保存在 `chrome.storage.local`。
-- API Key 不会写死在代码中。
-- API Key 不会保存到 IndexedDB。
-- API Key 不应提交到 Git。
-
-## 数据备份说明
-
-- 导出文件名类似 `recall-export-YYYY-MM-DD.json`。
-- 导出的 JSON 只包含 articles 数据，不包含 SiliconFlow API Key。
-- 导出字段包括标题、URL、正文、预览、字数、摘要、标签、embedding、AI 状态、向量状态、保存时间、来源和向量模型等文章信息。
-- 导出的 JSON 可能包含网页正文、摘要和 embedding，用户应妥善保管。
-- 导入时不会清空现有收藏，也不会覆盖 API Key。
-- 导入时按 URL 去重，当前已存在的 URL 会被跳过。
-
-## 隐私与数据安全说明
-
-- 收藏文章、正文、摘要、标签和 embedding 默认保存在当前浏览器本地 IndexedDB。
-- SiliconFlow API Key 保存在当前浏览器本地 `chrome.storage.local`，不会写入代码、IndexedDB 或导出 JSON。
-- Recall 不提供自建后端、账户系统或云同步能力。
-- 手动保存时，只会处理用户当前主动保存的页面。
-- 自动索引默认关闭，只有用户主动开启后才会处理普通 `http://` 和 `https://` 页面。
-- Recall 不读取全部浏览器历史记录，也不请求 `chrome.history` 权限。
-- 自动索引会跳过登录、支付、账户、密码、设置、后台管理等敏感页面。
-- 配置 SiliconFlow API Key 后，摘要、标签、embedding 和语义搜索会向 SiliconFlow API 发送必要文本内容。
-- 导出的 JSON 可能包含网页正文、摘要和 embedding，应避免公开上传或提交到 Git 仓库。
-
-## 自动索引模式说明
-
-- 自动索引模式默认关闭。
-- Recall 不会读取全部浏览器历史记录，也不请求 `chrome.history` 权限。
-- 只有用户主动开启后，才会处理之后浏览的普通 `http://` 和 `https://` 页面。
-- 自动索引会跳过 `chrome://`、`edge://`、扩展页面、`about:`、`file://`、`localhost` 和 `127.0.0.1`。
-- 自动索引会通过 URL、标题和表单特征跳过登录、支付、账户、购物车、账单、密码、设置、个人资料和后台管理等敏感页面。
-- 正文少于 500 字的页面不会自动保存。
-- 如果 URL 已经保存过，自动索引不会重复保存。
-- 自动索引不会直接在目标页面 DOM 上运行 Readability，以减少严格 CSP 页面上的抽取失败。
-- 最近一次自动索引状态只保存在本地 `chrome.storage.local`，不会上传到任何服务器。
-
-## 当前限制
-
-- 数据仅保存在当前浏览器本地，不支持云同步。
-- 语义搜索只会检索已成功生成 embedding 的文章。
-- 搜索结果暂时固定展示 Top 5。
-- 部分动态页面或结构复杂页面可能无法被 Readability 正确抽取。
-- `chrome://`、扩展页面等特殊页面无法保存。
-- 自动索引采用保守正文抽取策略，部分强 CSP、单页应用、懒加载或复杂动态页面可能被跳过。
-- AI 能力依赖用户自行配置 SiliconFlow API Key。
-- 目前没有文章详情页、批量编辑等管理功能。
-
-## 浏览器兼容性
-
-- Google Chrome 测试通过。
-- Microsoft Edge 测试通过。
-- QQ 浏览器测试通过。
-- Firefox 临时加载测试通过。
-- Firefox 当前未做正式签名发布，临时扩展在重启 Firefox 后会消失。
-- 项目主要支持目标仍是 Chromium 系浏览器。
-
-## 后续规划
-
-- 文章详情页，展示完整正文、摘要和元信息。
-- 单条收藏删除与重新生成 AI 信息。
-- 更完善的导入格式校验和备份诊断。
-- 按标签、域名、时间筛选收藏。
-- Options Page 中支持模型配置。
-- 更完善的错误提示和状态诊断。
-- 搜索结果的更丰富排序与过滤。
-
-## 仓库说明
-
-以下内容不会提交到 Git：
+以下内容不应提交：
 
 ```text
 node_modules/
 dist/
 .env
 .env.local
+.agents/
 ```
 
 请不要提交 API Key、构建产物或本地依赖目录。
