@@ -176,6 +176,18 @@ Recall 使用 SiliconFlow API 生成摘要、标签和向量。
 - 导入时不会清空现有收藏，也不会覆盖 API Key。
 - 导入时按 URL 去重，当前已存在的 URL 会被跳过。
 
+## 隐私与数据安全说明
+
+- 收藏文章、正文、摘要、标签和 embedding 默认保存在当前浏览器本地 IndexedDB。
+- SiliconFlow API Key 保存在当前浏览器本地 `chrome.storage.local`，不会写入代码、IndexedDB 或导出 JSON。
+- Recall 不提供自建后端、账户系统或云同步能力。
+- 手动保存时，只会处理用户当前主动保存的页面。
+- 自动索引默认关闭，只有用户主动开启后才会处理普通 `http://` 和 `https://` 页面。
+- Recall 不读取全部浏览器历史记录，也不请求 `chrome.history` 权限。
+- 自动索引会跳过登录、支付、账户、密码、设置、后台管理等敏感页面。
+- 配置 SiliconFlow API Key 后，摘要、标签、embedding 和语义搜索会向 SiliconFlow API 发送必要文本内容。
+- 导出的 JSON 可能包含网页正文、摘要和 embedding，应避免公开上传或提交到 Git 仓库。
+
 ## 自动索引模式说明
 
 - 自动索引模式默认关闭。
