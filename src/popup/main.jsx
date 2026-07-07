@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import {
   generateArticleEmbedding,
   generateArticleInsights,
+  generateQueryEmbedding,
 } from '../ai/siliconflow'
 import {
   canExtractFromUrl,
@@ -10,6 +11,7 @@ import {
 } from '../extraction/readability'
 import { clearArticles, getAllArticles, saveArticle } from '../storage/articles'
 import { getSiliconFlowApiKey } from '../storage/settings'
+import { cosineSimilarity } from '../utils/vector'
 import './style.css'
 
 function Popup() {
@@ -17,6 +19,9 @@ function Popup() {
   const [statusMessage, setStatusMessage] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [hasApiKey, setHasApiKey] = useState(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState(null)
+  const [isSearching, setIsSearching] = useState(false)
 
   useEffect(() => {
     getAllArticles()
@@ -179,6 +184,86 @@ function Popup() {
       })
   }
 
+  const handleSearchQueryChange = (event) => {
+    const nextQuery = event.target.value
+
+    setSearchQuery(nextQuery)
+
+    if (!nextQuery.trim()) {
+      setSearchResults(null)
+    }
+  }
+
+  const handleSearchSubmit = async (event) => {
+    event.preventDefault()
+
+    const query = searchQuery.trim()
+
+    if (!query) {
+      handleClearSearchClick()
+      return
+    }
+
+    if (articles.length === 0) {
+      setSearchResults(null)
+      setStatusMessage('暂无收藏')
+      return
+    }
+
+    setIsSearching(true)
+    setStatusMessage('')
+
+    try {
+      const apiKey = await getSiliconFlowApiKey().catch(() => '')
+
+      setHasApiKey(Boolean(apiKey))
+
+      if (!apiKey) {
+        setSearchResults(null)
+        setStatusMessage('请先配置 SiliconFlow API Key')
+        return
+      }
+
+      const searchableArticles = articles.filter(
+        (article) =>
+          article.embeddingStatus === 'completed' &&
+          Array.isArray(article.embedding) &&
+          article.embedding.length > 0,
+      )
+
+      if (searchableArticles.length === 0) {
+        setSearchResults([])
+        setStatusMessage('暂无可搜索的向量')
+        return
+      }
+
+      const queryEmbedding = await generateQueryEmbedding({ apiKey, query })
+      const results = searchableArticles
+        .map((article) => ({
+          ...article,
+          similarity: cosineSimilarity(queryEmbedding, article.embedding),
+        }))
+        .sort((articleA, articleB) => articleB.similarity - articleA.similarity)
+        .slice(0, 5)
+
+      setSearchResults(results)
+      setStatusMessage(
+        results.length > 0 ? `找到 ${results.length} 条相关收藏` : '暂无匹配结果',
+      )
+    } catch {
+      setSearchResults([])
+      setStatusMessage('搜索失败，请稍后重试')
+    } finally {
+      setIsSearching(false)
+    }
+  }
+
+  const handleClearSearchClick = () => {
+    setSearchQuery('')
+    setSearchResults(null)
+    setStatusMessage('')
+  }
+
   const handleOpenSettingsClick = () => {
     const runtimeApi = globalThis.chrome?.runtime
 
@@ -200,9 +285,34 @@ function Popup() {
     }
   }
 
+  const isSearchMode = searchResults !== null
+  const displayedArticles = isSearchMode ? searchResults : articles
+
   return (
     <main className="popup">
       <h1>Recall</h1>
+      <form className="search-form" onSubmit={handleSearchSubmit}>
+        <input
+          type="search"
+          value={searchQuery}
+          onChange={handleSearchQueryChange}
+          placeholder="用自然语言搜索收藏内容"
+          aria-label="搜索收藏内容"
+        />
+        <div className="search-actions">
+          <button type="submit" disabled={isSearching}>
+            {isSearching ? '搜索中...' : '搜索'}
+          </button>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={handleClearSearchClick}
+            disabled={isSearching || (!searchQuery && searchResults === null)}
+          >
+            清空搜索
+          </button>
+        </div>
+      </form>
       <div className="actions">
         <button type="button" onClick={handleSaveClick} disabled={isSaving}>
           {isSaving ? '正在保存...' : '保存当前页面'}
@@ -234,9 +344,9 @@ function Popup() {
         </p>
       ) : null}
       <section className="favorites" aria-label="收藏列表">
-        {articles.length > 0 ? (
+        {displayedArticles.length > 0 ? (
           <div className="favorite-list">
-            {articles.map((article) => (
+            {displayedArticles.map((article) => (
               <article className="favorite-item" key={article.id}>
                 <h2>{article.title}</h2>
                 <p className="article-url">{article.url}</p>
@@ -273,12 +383,17 @@ function Popup() {
                     {new Date(article.createdAt).toLocaleString()}
                   </time>
                   {article.wordCount ? <span>{article.wordCount} 字</span> : null}
+                  {typeof article.similarity === 'number' ? (
+                    <span>相似度 {article.similarity.toFixed(2)}</span>
+                  ) : null}
                 </div>
               </article>
             ))}
           </div>
         ) : (
-          <div className="placeholder">暂无收藏</div>
+          <div className="placeholder">
+            {isSearchMode ? '暂无匹配结果' : '暂无收藏'}
+          </div>
         )}
       </section>
     </main>
@@ -302,7 +417,7 @@ function queryActiveTab(tabsApi) {
 
 function getFriendlyErrorMessage(error) {
   if (error instanceof Error && error.message) {
-    return error.message.replace(/sk-[A-Za-z0-9_-]+/g, 'sk-***').slice(0, 160)
+    return error.message.replace(/(?:sk|sf)-[A-Za-z0-9_-]+/g, '***').slice(0, 160)
   }
 
   return 'AI 摘要生成失败'

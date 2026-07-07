@@ -52,6 +52,34 @@ button:focus-visible {
   outline-offset: 2px;
 }
 
+.search-form {
+  display: grid;
+  gap: 8px;
+}
+
+input[type='search'] {
+  width: 100%;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: #ffffff;
+  color: #172026;
+  font: inherit;
+  font-size: 13px;
+}
+
+input[type='search']:focus {
+  border-color: #1f6feb;
+  outline: 3px solid #9ec5ff;
+  outline-offset: 1px;
+}
+
+.search-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
 .actions {
   display: grid;
   gap: 8px;

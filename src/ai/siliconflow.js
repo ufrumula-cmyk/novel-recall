@@ -51,34 +51,23 @@ export async function generateArticleEmbedding({
   excerpt,
   content,
 }) {
-  const response = await fetch(EMBEDDINGS_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: EMBEDDING_MODEL,
-      input: buildEmbeddingInput({ title, summary, tags, excerpt, content }),
-    }),
+  const embedding = await createEmbedding({
+    apiKey,
+    input: buildEmbeddingInput({ title, summary, tags, excerpt, content }),
   })
-
-  if (!response.ok) {
-    throw new Error(await getSiliconFlowErrorMessage(response))
-  }
-
-  const data = await response.json()
-  const embedding = data.data?.[0]?.embedding
-
-  if (!isNumberArray(embedding)) {
-    throw new Error('SiliconFlow 未返回有效向量')
-  }
 
   return {
     embedding,
     embeddingModel: EMBEDDING_MODEL,
     embeddedAt: new Date().toISOString(),
   }
+}
+
+export async function generateQueryEmbedding({ apiKey, query }) {
+  return createEmbedding({
+    apiKey,
+    input: query.slice(0, MAX_EMBEDDING_INPUT_LENGTH),
+  })
 }
 
 function buildPrompt({ title, url, content }) {
@@ -139,6 +128,33 @@ function isNumberArray(value) {
   return Array.isArray(value) && value.every((item) => typeof item === 'number')
 }
 
+async function createEmbedding({ apiKey, input }) {
+  const response = await fetch(EMBEDDINGS_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: EMBEDDING_MODEL,
+      input,
+    }),
+  })
+
+  if (!response.ok) {
+    throw new Error(await getSiliconFlowErrorMessage(response))
+  }
+
+  const data = await response.json()
+  const embedding = data.data?.[0]?.embedding
+
+  if (!isNumberArray(embedding)) {
+    throw new Error('SiliconFlow 未返回有效向量')
+  }
+
+  return embedding
+}
+
 async function getSiliconFlowErrorMessage(response) {
   try {
     const data = await response.json()
@@ -159,5 +175,5 @@ function shortenError(message) {
 }
 
 function sanitizeError(message) {
-  return message.replace(/sk-[A-Za-z0-9_-]+/g, 'sk-***')
+  return message.replace(/(?:sk|sf)-[A-Za-z0-9_-]+/g, '***')
 }
