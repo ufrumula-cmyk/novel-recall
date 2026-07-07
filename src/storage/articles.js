@@ -29,6 +29,12 @@ export async function getAllArticles() {
   return articles.reverse()
 }
 
+export async function getArticleByUrl(url) {
+  const db = await dbPromise
+
+  return db.getFromIndex(STORE_NAME, 'url', url)
+}
+
 export async function saveArticle({
   title,
   url,
@@ -44,6 +50,8 @@ export async function saveArticle({
   embeddingError = '',
   embeddingModel = '',
   embeddedAt = '',
+  source = 'manual',
+  autoCapturedAt = '',
 }) {
   const db = await dbPromise
   const existing = await db.getFromIndex(STORE_NAME, 'url', url)
@@ -65,6 +73,11 @@ export async function saveArticle({
     embeddingError,
     embeddingModel,
     embeddedAt,
+    source,
+    autoCapturedAt:
+      source === 'auto'
+        ? autoCapturedAt || createdAt
+        : existing?.autoCapturedAt || '',
     createdAt,
   }
 

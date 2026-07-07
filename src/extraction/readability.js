@@ -46,6 +46,27 @@ export async function extractReadableContentFromTab(tabId, pageUrl) {
   baseElement.href = pageUrl || snapshot.url
   parsedDocument.head?.prepend(baseElement)
 
+  return extractReadableContentFromDocument(
+    parsedDocument,
+    pageUrl || snapshot.url,
+    snapshot.title,
+  )
+}
+
+export function extractReadableContentFromDocument(
+  pageDocument,
+  pageUrl,
+  pageTitle,
+) {
+  const parsedDocument = pageDocument.cloneNode(true)
+  const existingBaseElement = parsedDocument.querySelector('base')
+  const baseElement = existingBaseElement || parsedDocument.createElement('base')
+  baseElement.href = pageUrl
+
+  if (!existingBaseElement) {
+    parsedDocument.head?.prepend(baseElement)
+  }
+
   const parsedArticle = new Readability(parsedDocument).parse()
   const content = normalizeText(parsedArticle?.textContent)
 
@@ -54,7 +75,8 @@ export async function extractReadableContentFromTab(tabId, pageUrl) {
   }
 
   return {
-    title: parsedArticle?.title || snapshot.title,
+    title: parsedArticle?.title || pageTitle,
+    url: pageUrl,
     content,
     excerpt: createExcerpt(content),
     wordCount: countWords(content),

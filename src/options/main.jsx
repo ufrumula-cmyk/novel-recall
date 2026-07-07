@@ -2,7 +2,9 @@ import React, { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import {
   clearSiliconFlowApiKey,
+  getAutoIndexEnabled,
   getSiliconFlowApiKey,
+  saveAutoIndexEnabled,
   saveSiliconFlowApiKey,
 } from '../storage/settings'
 import './style.css'
@@ -12,10 +14,15 @@ function OptionsPage() {
   const [statusMessage, setStatusMessage] = useState('')
   const [statusType, setStatusType] = useState('info')
   const [isSaving, setIsSaving] = useState(false)
+  const [isSavingAutoIndex, setIsSavingAutoIndex] = useState(false)
+  const [autoIndexEnabled, setAutoIndexEnabled] = useState(false)
 
   useEffect(() => {
-    getSiliconFlowApiKey()
-      .then(setApiKey)
+    Promise.all([getSiliconFlowApiKey(), getAutoIndexEnabled()])
+      .then(([storedApiKey, storedAutoIndexEnabled]) => {
+        setApiKey(storedApiKey)
+        setAutoIndexEnabled(storedAutoIndexEnabled)
+      })
       .catch(() => {
         setStatusType('error')
         setStatusMessage('读取设置失败')
@@ -63,6 +70,26 @@ function OptionsPage() {
     }
   }
 
+  const handleAutoIndexChange = async (event) => {
+    const nextEnabled = event.target.checked
+    const previousEnabled = autoIndexEnabled
+
+    setAutoIndexEnabled(nextEnabled)
+    setIsSavingAutoIndex(true)
+
+    try {
+      await saveAutoIndexEnabled(nextEnabled)
+      setStatusType('success')
+      setStatusMessage(nextEnabled ? '自动索引已开启' : '自动索引已关闭')
+    } catch {
+      setAutoIndexEnabled(previousEnabled)
+      setStatusType('error')
+      setStatusMessage('自动索引设置保存失败')
+    } finally {
+      setIsSavingAutoIndex(false)
+    }
+  }
+
   return (
     <main className="options-page">
       <section className="settings-panel" aria-labelledby="settings-title">
@@ -91,6 +118,28 @@ function OptionsPage() {
             </button>
           </div>
         </form>
+        <section className="auto-index-setting" aria-labelledby="auto-index-title">
+          <div>
+            <h2 id="auto-index-title">自动索引模式</h2>
+            <p>
+              开启后，Recall 会在普通网页停留超过 15 秒时尝试自动保存正文。
+            </p>
+          </div>
+          <label className="toggle-control">
+            <input
+              type="checkbox"
+              checked={autoIndexEnabled}
+              onChange={handleAutoIndexChange}
+              disabled={isSavingAutoIndex}
+            />
+            <span className="toggle-track" aria-hidden="true">
+              <span className="toggle-thumb" />
+            </span>
+            <span className="toggle-text">
+              {autoIndexEnabled ? '已开启' : '已关闭'}
+            </span>
+          </label>
+        </section>
         {statusMessage ? (
           <p className={`status-message ${statusType}`} role="status">
             {statusMessage}

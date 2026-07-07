@@ -15,7 +15,11 @@ import {
   getAllArticles,
   saveArticle,
 } from '../storage/articles'
-import { getSiliconFlowApiKey } from '../storage/settings'
+import {
+  AUTO_INDEX_ENABLED_STORAGE_KEY,
+  getAutoIndexEnabled,
+  getSiliconFlowApiKey,
+} from '../storage/settings'
 import { cosineSimilarity } from '../utils/vector'
 import './style.css'
 
@@ -27,6 +31,7 @@ function Popup() {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState(null)
   const [isSearching, setIsSearching] = useState(false)
+  const [autoIndexEnabled, setAutoIndexEnabled] = useState(false)
 
   useEffect(() => {
     getAllArticles()
@@ -42,6 +47,33 @@ function Popup() {
       .catch(() => {
         setHasApiKey(false)
       })
+
+    getAutoIndexEnabled()
+      .then(setAutoIndexEnabled)
+      .catch(() => {
+        setAutoIndexEnabled(false)
+      })
+
+    const storageChangeApi = globalThis.chrome?.storage?.onChanged
+    const handleStorageChange = (changes, areaName) => {
+      if (
+        areaName === 'local' &&
+        Object.prototype.hasOwnProperty.call(
+          changes,
+          AUTO_INDEX_ENABLED_STORAGE_KEY,
+        )
+      ) {
+        setAutoIndexEnabled(
+          changes[AUTO_INDEX_ENABLED_STORAGE_KEY].newValue === true,
+        )
+      }
+    }
+
+    storageChangeApi?.addListener(handleStorageChange)
+
+    return () => {
+      storageChangeApi?.removeListener(handleStorageChange)
+    }
   }, [])
 
   const handleSaveClick = async () => {
@@ -156,6 +188,7 @@ function Popup() {
         content: extractedArticle.content,
         excerpt: extractedArticle.excerpt,
         wordCount: extractedArticle.wordCount,
+        source: 'manual',
         ...aiFields,
         ...embeddingFields,
       })
@@ -363,6 +396,13 @@ function Popup() {
           </button>
         </div>
       </header>
+      <p
+        className={`auto-index-status ${
+          autoIndexEnabled ? 'enabled' : 'disabled'
+        }`}
+      >
+        自动索引：{autoIndexEnabled ? '已开启' : '已关闭'}
+      </p>
       <form className="search-form" onSubmit={handleSearchSubmit}>
         <div className="search-input-wrap">
           <input
@@ -463,6 +503,7 @@ function Popup() {
                   </p>
                 ) : null}
                 <div className="article-meta">
+                  <span>{getArticleSourceLabel(article.source)}</span>
                   <time dateTime={article.createdAt}>
                     {new Date(article.createdAt).toLocaleString()}
                   </time>
@@ -547,6 +588,10 @@ function getEmbeddingStatusLabel(status) {
   }
 
   return '向量跳过'
+}
+
+function getArticleSourceLabel(source) {
+  return source === 'auto' ? '自动索引' : '手动收藏'
 }
 
 createRoot(document.getElementById('root')).render(

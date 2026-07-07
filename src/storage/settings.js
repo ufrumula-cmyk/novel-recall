@@ -1,4 +1,5 @@
 const SILICONFLOW_API_KEY_STORAGE_KEY = 'siliconFlowApiKey'
+export const AUTO_INDEX_ENABLED_STORAGE_KEY = 'autoIndexEnabled'
 
 export async function getSiliconFlowApiKey() {
   const result = await storageGet(SILICONFLOW_API_KEY_STORAGE_KEY)
@@ -15,6 +16,18 @@ export async function saveSiliconFlowApiKey(apiKey) {
 
 export async function clearSiliconFlowApiKey() {
   await storageRemove(SILICONFLOW_API_KEY_STORAGE_KEY)
+}
+
+export async function getAutoIndexEnabled() {
+  const result = await storageGet(AUTO_INDEX_ENABLED_STORAGE_KEY)
+
+  return result[AUTO_INDEX_ENABLED_STORAGE_KEY] === true
+}
+
+export async function saveAutoIndexEnabled(enabled) {
+  await storageSet({
+    [AUTO_INDEX_ENABLED_STORAGE_KEY]: Boolean(enabled),
+  })
 }
 
 function getStorageArea() {
