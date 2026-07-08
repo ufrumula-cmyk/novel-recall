@@ -1,5 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { generateEmbedding, generateNovelAnalysis } from './ai/siliconflow'
+import {
+  generateEmbedding,
+  generateNovelAnalysis,
+  generateNovelCandidates,
+} from './ai/siliconflow'
 import {
   clearNovels,
   deleteNovel,
@@ -40,6 +44,10 @@ export default function NovelManager({ mode, surface = 'page' }) {
   const [semanticQuery, setSemanticQuery] = useState('')
   const [semanticResults, setSemanticResults] = useState(null)
   const [isSemanticSearching, setIsSemanticSearching] = useState(false)
+  const [aiGuessQuery, setAiGuessQuery] = useState('')
+  const [aiGuessInfo, setAiGuessInfo] = useState(null)
+  const [aiGuessCandidates, setAiGuessCandidates] = useState(null)
+  const [isAiGuessing, setIsAiGuessing] = useState(false)
   const fileInputRef = useRef(null)
 
   useEffect(() => {
@@ -57,9 +65,12 @@ export default function NovelManager({ mode, surface = 'page' }) {
   const hasUnembeddedNovels = novels.some((novel) => !hasNovelEmbedding(novel))
   const hasEmbeddedNovels = novels.some(hasNovelEmbedding)
   const isPopupSemanticMode = popupSearchMode === 'semantic'
+  const isPopupKeywordMode = popupSearchMode === 'keyword'
+  const isPopupGuessMode = popupSearchMode === 'guess'
+  const needsPopupApiKey = isPopupSemanticMode || isPopupGuessMode
   const displayedNovels =
     semanticResults ??
-    (isPopupMode && isPopupSemanticMode ? novels : keywordFilteredNovels)
+    (isPopupMode && !isPopupKeywordMode ? novels : keywordFilteredNovels)
   const unanalyzedDisplayedNovels = useMemo(
     () => displayedNovels.filter((novel) => !hasNovelAnalysis(novel)),
     [displayedNovels],
@@ -154,6 +165,8 @@ export default function NovelManager({ mode, surface = 'page' }) {
 
       await refreshNovels()
       setSemanticResults(null)
+      setAiGuessInfo(null)
+      setAiGuessCandidates(null)
       showStatus(
         `导入完成：新增 ${result.importedCount} 条，跳过 ${result.skippedCount} 条，失败 ${result.failedCount} 条`,
         result.failedCount > 0 ? 'warning' : 'success',
@@ -232,6 +245,9 @@ export default function NovelManager({ mode, surface = 'page' }) {
       setSearchQuery('')
       setSemanticQuery('')
       setSemanticResults(null)
+      setAiGuessQuery('')
+      setAiGuessInfo(null)
+      setAiGuessCandidates(null)
       setEmbeddingFailedNovelIds(new Set())
       showStatus('已清空全部小说数据', 'success')
     } catch {
@@ -250,9 +266,27 @@ export default function NovelManager({ mode, surface = 'page' }) {
 
     if (nextMode === 'semantic') {
       setSearchQuery('')
-    } else {
+      setAiGuessQuery('')
+      setAiGuessInfo(null)
+      setAiGuessCandidates(null)
+      return
+    }
+
+    if (nextMode === 'keyword') {
       setSemanticQuery('')
       setSemanticResults(null)
+      setAiGuessQuery('')
+      setAiGuessInfo(null)
+      setAiGuessCandidates(null)
+      return
+    }
+
+    if (nextMode === 'guess') {
+      setSearchQuery('')
+      setSemanticQuery('')
+      setSemanticResults(null)
+      setAiGuessInfo(null)
+      setAiGuessCandidates(null)
     }
   }
 
@@ -262,6 +296,13 @@ export default function NovelManager({ mode, surface = 'page' }) {
     if (isPopupSemanticMode) {
       setSemanticQuery(nextValue)
       setSemanticResults(null)
+      return
+    }
+
+    if (isPopupGuessMode) {
+      setAiGuessQuery(nextValue)
+      setAiGuessInfo(null)
+      setAiGuessCandidates(null)
       return
     }
 
@@ -278,6 +319,13 @@ export default function NovelManager({ mode, surface = 'page' }) {
       return
     }
 
+    if (isPopupGuessMode) {
+      setAiGuessQuery('')
+      setAiGuessInfo(null)
+      setAiGuessCandidates(null)
+      return
+    }
+
     setSearchQuery('')
     setSemanticResults(null)
   }
@@ -288,8 +336,15 @@ export default function NovelManager({ mode, surface = 'page' }) {
       return
     }
 
+    if (isPopupGuessMode) {
+      handleAiGuessSubmit(event)
+      return
+    }
+
     event.preventDefault()
     setSemanticResults(null)
+    setAiGuessInfo(null)
+    setAiGuessCandidates(null)
 
     if (!searchQuery.trim()) {
       showStatus('请输入关键词', 'error')
@@ -297,6 +352,73 @@ export default function NovelManager({ mode, surface = 'page' }) {
     }
 
     showStatus(`关键词检索完成，匹配 ${keywordFilteredNovels.length} 条`, 'success')
+  }
+
+  async function handleAiGuessSubmit(event) {
+    event.preventDefault()
+
+    const query = aiGuessQuery.trim()
+
+    if (!query) {
+      showStatus('请输入你记得的剧情', 'error')
+      return
+    }
+
+    const inputGuidance = getAiGuessInputGuidance(query)
+
+    if (inputGuidance) {
+      setAiGuessInfo(inputGuidance)
+      setAiGuessCandidates([])
+      setSemanticResults(null)
+      showStatus(inputGuidance.message, 'warning')
+      return
+    }
+
+    const apiKey = await getSiliconFlowApiKey().catch(() => '')
+
+    setHasApiKey(Boolean(apiKey))
+
+    if (!apiKey) {
+      showStatus('请先在设置页配置 SiliconFlow API Key', 'error')
+      return
+    }
+
+    setIsAiGuessing(true)
+    setAiGuessInfo(null)
+    setAiGuessCandidates(null)
+    setSemanticResults(null)
+    setStatusMessage('')
+
+    try {
+      const result = await generateNovelCandidates({
+        apiKey,
+        query,
+      })
+
+      setAiGuessInfo({
+        status: result.status,
+        message: result.message,
+        followUpQuestions: result.followUpQuestions,
+      })
+
+      if (result.status === 'need_more_info') {
+        setAiGuessCandidates([])
+        showStatus('信息还不够，AI 暂时无法给出可靠候选', 'warning')
+        return
+      }
+
+      setAiGuessCandidates(result.candidates)
+      showStatus(
+        `AI 猜书完成，返回 ${result.candidates.length} 个推测候选`,
+        'success',
+      )
+    } catch (error) {
+      setAiGuessInfo(null)
+      setAiGuessCandidates([])
+      showStatus(getFriendlyApiErrorMessage(error), 'error')
+    } finally {
+      setIsAiGuessing(false)
+    }
   }
 
   async function handleGenerateEmbedding(novel) {
@@ -681,7 +803,7 @@ export default function NovelManager({ mode, surface = 'page' }) {
           </div>
         </header>
 
-        {!hasApiKey && !isCheckingApiKey ? (
+        {needsPopupApiKey && !hasApiKey && !isCheckingApiKey ? (
           <div className="light-notice" role="status">
             <span>请先在设置页配置 SiliconFlow API Key</span>
             <button
@@ -694,7 +816,7 @@ export default function NovelManager({ mode, surface = 'page' }) {
           </div>
         ) : null}
 
-        {hasUnembeddedNovels ? (
+        {isPopupSemanticMode && hasUnembeddedNovels ? (
           <div className="light-notice">
             <span>
               {hasEmbeddedNovels
@@ -730,27 +852,60 @@ export default function NovelManager({ mode, surface = 'page' }) {
               <button
                 type="button"
                 className={`search-mode-button ${
-                  !isPopupSemanticMode ? 'active' : ''
+                  isPopupKeywordMode ? 'active' : ''
                 }`}
-                aria-pressed={!isPopupSemanticMode}
+                aria-pressed={isPopupKeywordMode}
                 onClick={() => handlePopupSearchModeClick('keyword')}
               >
                 关键词检索
               </button>
+              <button
+                type="button"
+                className={`search-mode-button ${
+                  isPopupGuessMode ? 'active' : ''
+                }`}
+                aria-pressed={isPopupGuessMode}
+                onClick={() => handlePopupSearchModeClick('guess')}
+              >
+                AI 猜书
+              </button>
             </div>
+            {isPopupGuessMode ? (
+              <p className="mode-description">
+                AI 会根据剧情描述生成可能的候选小说，结果可能不准确，请自行核验。
+              </p>
+            ) : null}
             <div className="search-input-wrap">
               <input
                 type="search"
-                value={isPopupSemanticMode ? semanticQuery : searchQuery}
+                value={
+                  isPopupSemanticMode
+                    ? semanticQuery
+                    : isPopupGuessMode
+                      ? aiGuessQuery
+                      : searchQuery
+                }
                 onChange={handlePopupSearchInputChange}
                 placeholder={
                   isPopupSemanticMode
                     ? '请输入剧情描述，例如：女主重生回高中，男主暗恋她'
-                    : '搜索书名、作者、角色名、标签、简介关键词'
+                    : isPopupGuessMode
+                      ? '请输入你记得的剧情，例如：女主重生回高中，男主暗恋她'
+                      : '搜索书名、作者、角色名、标签、简介关键词'
                 }
-                aria-label={isPopupSemanticMode ? '剧情检索' : '关键词检索'}
+                aria-label={
+                  isPopupSemanticMode
+                    ? '剧情检索'
+                    : isPopupGuessMode
+                      ? 'AI 猜书'
+                      : '关键词检索'
+                }
               />
-              {(isPopupSemanticMode ? semanticQuery : searchQuery) ? (
+              {(isPopupSemanticMode
+                ? semanticQuery
+                : isPopupGuessMode
+                  ? aiGuessQuery
+                  : searchQuery) ? (
                 <button
                   type="button"
                   className="icon-button search-clear-button"
@@ -764,12 +919,19 @@ export default function NovelManager({ mode, surface = 'page' }) {
             </div>
             <button
               type="submit"
-              disabled={isPopupSemanticMode && isSemanticSearching}
+              disabled={
+                (isPopupSemanticMode && isSemanticSearching) ||
+                (isPopupGuessMode && isAiGuessing)
+              }
             >
               {isPopupSemanticMode
                 ? isSemanticSearching
                   ? '检索中'
                   : '剧情检索'
+                : isPopupGuessMode
+                  ? isAiGuessing
+                    ? '猜书中'
+                    : 'AI 猜书'
                 : '关键词检索'}
             </button>
           </form>
@@ -781,16 +943,24 @@ export default function NovelManager({ mode, surface = 'page' }) {
           </p>
         ) : null}
 
-        <NovelListSection
-          displayedNovels={displayedNovels}
-          isLoading={isLoading}
-          isKeywordSearchMode={isKeywordSearchMode}
-          isSemanticSearchMode={isSemanticSearchMode}
-          emptyLabel="暂无小说数据"
-          renderNovel={(novel) => (
-            <NovelListItem key={novel.id} novel={novel} compact />
-          )}
-        />
+        {isPopupGuessMode ? (
+          <AiGuessResultsSection
+            resultInfo={aiGuessInfo}
+            candidates={aiGuessCandidates}
+            isGuessing={isAiGuessing}
+          />
+        ) : (
+          <NovelListSection
+            displayedNovels={displayedNovels}
+            isLoading={isLoading}
+            isKeywordSearchMode={isKeywordSearchMode}
+            isSemanticSearchMode={isSemanticSearchMode}
+            emptyLabel="暂无小说数据"
+            renderNovel={(novel) => (
+              <NovelListItem key={novel.id} novel={novel} compact />
+            )}
+          />
+        )}
       </main>
     )
   }
@@ -1016,6 +1186,91 @@ function NovelListSection({
               : emptyLabel}
         </div>
       )}
+    </section>
+  )
+}
+
+function AiGuessResultsSection({
+  resultInfo,
+  candidates,
+  isGuessing,
+}) {
+  const needsMoreInfo = resultInfo?.status === 'need_more_info'
+
+  return (
+    <section className="guess-result-section" aria-label="AI 猜书候选">
+      <div className="list-summary">
+        <span>
+          {needsMoreInfo
+            ? '需要补充信息'
+            : candidates
+            ? `AI 猜书候选 ${candidates.length} 条`
+            : 'AI 猜书候选'}
+        </span>
+        {isGuessing ? <span>生成中</span> : null}
+      </div>
+
+      {needsMoreInfo ? (
+        <div className="need-more-info-card">
+          <strong>信息还不够，AI 暂时无法给出可靠候选</strong>
+          <p>{resultInfo.message}</p>
+          {resultInfo.followUpQuestions?.length > 0 ? (
+            <ul>
+              {resultInfo.followUpQuestions.map((question) => (
+                <li key={question}>{question}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+
+      {!needsMoreInfo ? (
+        <div className="guess-disclaimer">AI 推测，未验证</div>
+      ) : null}
+
+      {!needsMoreInfo && candidates?.length > 0 ? (
+        <div className="candidate-list">
+          {candidates.map((candidate, index) => (
+            <article
+              className="candidate-item"
+              key={`${candidate.title}-${candidate.author}-${index}`}
+            >
+              <div className="candidate-title-row">
+                <h2>{candidate.title}</h2>
+                <span className={`confidence-badge ${candidate.confidence}`}>
+                  {getConfidenceLabel(candidate.confidence)}
+                </span>
+              </div>
+              <div className="novel-meta">
+                <span>{candidate.author || '未知作者'}</span>
+                <span>AI 推测，未验证</span>
+              </div>
+              <p className="candidate-reason">{candidate.reason}</p>
+              {candidate.matchedElements?.length > 0 ? (
+                <div className="ai-guess-elements" aria-label="匹配元素">
+                  <span className="ai-guess-elements-label">匹配元素：</span>
+                  {candidate.matchedElements.map((element) => (
+                    <span
+                      className="ai-guess-element-pill matched"
+                      key={`${candidate.title}-${element}`}
+                    >
+                      {element}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </article>
+          ))}
+        </div>
+      ) : !needsMoreInfo ? (
+        <div className="empty-state">
+          {isGuessing
+            ? '正在生成 AI 猜书候选'
+            : candidates
+              ? '暂无 AI 猜书候选'
+              : '输入剧情描述后生成 AI 猜书候选'}
+        </div>
+      ) : null}
     </section>
   )
 }
@@ -1273,6 +1528,139 @@ function getFriendlyApiErrorMessage(error) {
   return '请求失败，请稍后重试'
 }
 
+function getAiGuessInputGuidance(query) {
+  const normalizedQuery = query.replace(/\s+/g, '')
+  const chineseCharCount = (normalizedQuery.match(/[\u4e00-\u9fff]/gu) || [])
+    .length
+  const concreteElementCount = getAiGuessConcreteElementCount(normalizedQuery)
+  const defaultFollowUpQuestions = [
+    '是现代、古代、校园、娱乐圈还是玄幻？',
+    '还记得主角身份或职业吗？',
+    '还记得一个关键剧情或反派设定吗？',
+  ]
+
+  if (chineseCharCount < 8 || isObviouslyMeaninglessGuessInput(normalizedQuery)) {
+    return {
+      status: 'need_more_info',
+      message: '描述太少，请补充题材、人物关系或关键剧情。',
+      followUpQuestions: defaultFollowUpQuestions,
+    }
+  }
+
+  if (
+    concreteElementCount < 3 ||
+    isOverlyGenericRebirthRomance(normalizedQuery)
+  ) {
+    return {
+      status: 'need_more_info',
+      message: '这个描述太常见，AI 暂时无法给出可靠候选。',
+      followUpQuestions: defaultFollowUpQuestions,
+    }
+  }
+
+  return null
+}
+
+function getAiGuessConcreteElementCount(query) {
+  return getAiGuessConcreteElements(query).length
+}
+
+function getAiGuessConcreteElements(query) {
+  const hints = [
+    '高中',
+    '大学',
+    '校园',
+    '古代',
+    '现代',
+    '末世',
+    '修仙',
+    '娱乐圈',
+    '星际',
+    '朝堂',
+    '豪门',
+    '同桌',
+    '青梅竹马',
+    '师徒',
+    '夫妻',
+    '前任',
+    '暗恋',
+    '死对头',
+    '契约婚姻',
+    '女主',
+    '男主',
+    '权臣',
+    '皇帝',
+    '影帝',
+    '学霸',
+    '反派',
+    '大小姐',
+    '特工',
+    '医生',
+    '重生',
+    '穿越',
+    '复仇',
+    '囤货',
+    '破案',
+    '考试',
+    '高考',
+    '逃生',
+    '洗白',
+    '逆袭',
+    '前世',
+    '这一世',
+    '小时候',
+    '多年后',
+    '上一世',
+    '甜文',
+  ]
+
+  return hints
+    .filter((hint) => query.includes(hint))
+    .sort((elementA, elementB) => query.indexOf(elementA) - query.indexOf(elementB))
+}
+
+function isObviouslyMeaninglessGuessInput(query) {
+  const vaguePhrases = [
+    '不知道',
+    '不记得',
+    '随便',
+    '忘了',
+    '没印象',
+    '什么小说',
+    '哪本书',
+  ]
+  const hasVaguePhrase = vaguePhrases.some((phrase) => query.includes(phrase))
+  const hasNoiseRepeat = /([啊呀额呃嗯哈])\1{2,}/u.test(query)
+  const concreteElementCount = getAiGuessConcreteElementCount(query)
+
+  return (hasVaguePhrase && concreteElementCount < 3) || hasNoiseRepeat
+}
+
+function isOverlyGenericRebirthRomance(query) {
+  const hasRebirth = query.includes('重生')
+  const hasCrush = query.includes('暗恋')
+  const hasLeadPair =
+    (query.includes('女主') || query.includes('女主角')) &&
+    (query.includes('男主') || query.includes('男主角'))
+  const hasSpecificSetting = [
+    '现代',
+    '古代',
+    '校园',
+    '高中',
+    '大学',
+    '娱乐圈',
+    '玄幻',
+    '修仙',
+    '末世',
+    '星际',
+    '职场',
+    '年代',
+    '朝堂',
+  ].some((hint) => query.includes(hint))
+
+  return hasRebirth && hasCrush && hasLeadPair && !hasSpecificSetting
+}
+
 function getSourceLabel(source) {
   if (source === 'manual') {
     return '手动'
@@ -1283,6 +1671,18 @@ function getSourceLabel(source) {
   }
 
   return '导入'
+}
+
+function getConfidenceLabel(confidence) {
+  if (confidence === 'high') {
+    return '高置信度'
+  }
+
+  if (confidence === 'medium') {
+    return '中置信度'
+  }
+
+  return '低置信度'
 }
 
 function formatTimestamp(timestamp) {

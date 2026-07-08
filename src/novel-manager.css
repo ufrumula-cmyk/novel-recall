@@ -228,7 +228,7 @@ a:hover {
 
 .search-mode-switch {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 4px;
   border-radius: 8px;
   background: #eef2f6;
@@ -259,6 +259,13 @@ a:hover {
 .keyword-search-block {
   display: grid;
   gap: 6px;
+}
+
+.mode-description {
+  margin: 0;
+  color: #5d4700;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .light-notice {
@@ -400,6 +407,11 @@ input[type='password']:focus-visible {
   gap: 10px;
 }
 
+.guess-result-section {
+  display: grid;
+  gap: 10px;
+}
+
 .list-summary {
   display: flex;
   align-items: center;
@@ -412,6 +424,137 @@ input[type='password']:focus-visible {
 .novel-list {
   display: grid;
   gap: 10px;
+}
+
+.guess-disclaimer {
+  border-radius: 6px;
+  background: #fff8c5;
+  color: #5d4700;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+  padding: 8px 10px;
+}
+
+.need-more-info-card {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #344054;
+  padding: 12px;
+}
+
+.need-more-info-card strong {
+  color: #172026;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.need-more-info-card p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.need-more-info-card ul {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding-left: 18px;
+  color: #475467;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.candidate-list {
+  display: grid;
+  gap: 10px;
+}
+
+.candidate-item {
+  display: grid;
+  gap: 9px;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  padding: 12px;
+  background: #ffffff;
+}
+
+.candidate-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.candidate-title-row h2 {
+  margin: 0;
+  color: #172026;
+  font-size: 16px;
+  font-weight: 750;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.candidate-reason {
+  margin: 0;
+  color: #344054;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.ai-guess-elements {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ai-guess-elements-label {
+  color: #4d635c;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.ai-guess-element-pill {
+  border-radius: 999px;
+  background: #e6f2ed;
+  color: #265547;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 6px 8px;
+}
+
+.confidence-badge {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #f0f3f5;
+  color: #475467;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 6px 8px;
+}
+
+.confidence-badge.high {
+  background: #dafbe1;
+  color: #116329;
+}
+
+.confidence-badge.medium {
+  background: #fff8c5;
+  color: #5d4700;
+}
+
+.confidence-badge.low {
+  background: #edf2f7;
+  color: #475467;
 }
 
 .novel-item {
