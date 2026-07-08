@@ -157,6 +157,70 @@ novel-recall-export-YYYY-MM-DD.json
 
 第二阶段生成的 `summary`、`plotKeywords`、`characterTags`、`genreTags` 属于 NovelItem 字段，会随小说数据一起导出。第三阶段生成的 `embedding` 也属于 NovelItem 字段，会随小说数据一起导出；UI 只显示“已生成向量”等状态，不展示完整 embedding 数组。
 
+## 使用公开数据集进行本地测试
+
+仓库不包含任何原始公开数据集，也不包含生成后的小说样本 JSON。`data/` 和 `hf-cache/` 已加入 `.gitignore`，本地测试数据只用于验证 Novel Recall 的导入、AI 分析和语义搜索流程。
+
+本地转换脚本位于：
+
+```text
+scripts/prepare-hf-novel-sample.mjs
+```
+
+脚本只读取你手动准备的本地文件，不会下载数据集，也不会访问晋江、番茄、起点或其他平台页面。小体积 `sample.csv` 可用于快速验证；如果后续手动准备大体积 `data.csv`，CSV 输入会使用流式读取，并在达到 `--limit` 条成功转换记录后停止继续读取。
+
+支持输入格式：
+
+- `.json`
+- `.jsonl`
+- `.csv`
+
+运行示例：
+
+```powershell
+node scripts/prepare-hf-novel-sample.mjs --input data/raw.jsonl --output data/novels-sample.json --limit 100
+```
+
+```powershell
+node scripts/prepare-hf-novel-sample.mjs --input D:\datasets\Chinese-web-novel\sample.csv --output D:\datasets\Chinese-web-novel\novels-sample.json --limit 100
+```
+
+```powershell
+node scripts/prepare-hf-novel-sample.mjs --input D:\datasets\Chinese-web-novel\data.csv --output D:\datasets\Chinese-web-novel\novels-sample-50.json --limit 50
+```
+
+CSV 输入要求包含表头。脚本会自动识别 `title`、`name`、`book_name`、`novel_name`、`author`、`category`、`tags`、`intro`、`summary`、`description`、`desc`、`content`、`text` 等字段。CSV parser 支持中文、逗号、双引号和字段内换行；如果遇到未闭合引号等格式问题，会输出错误提示并退出。
+
+转换规则：
+
+- 标题优先使用 `title`、`name`、`book_name`、`novel_name`；缺失时生成 `测试小说 1`、`测试小说 2`。
+- 作者优先使用 `author`；缺失时使用 `未知作者`。
+- 简介优先使用 `intro`、`summary`、`description`、`desc`。
+- 如果只能从 `content` 或 `text` 提取简介，只截取前 400 字左右，不导出完整正文。
+- 简介太短的记录会跳过。
+- `tags` 是数组时保留清洗后的字符串项；是字符串时按逗号、空格、斜杠、竖线切分；缺失时输出空数组。
+
+输出 JSON 是 Novel Recall options 页面可直接导入的数组，例如：
+
+```json
+[
+  {
+    "title": "示例小说",
+    "author": "未知作者",
+    "platform": "Chinese-web-novel",
+    "url": "",
+    "intro": "用于检索测试的简介或文本摘要，不包含完整小说正文。",
+    "tags": ["重生", "校园"],
+    "category": "",
+    "status": "",
+    "wordCount": "",
+    "source": "import"
+  }
+]
+```
+
+请不要把原始小说全文、`sample.csv`、`data.csv`、生成的大 JSON 或任何本地数据集文件提交到 Git。本项目不采集小说章节正文，不绕过任何平台限制，不写爬虫、反爬、模拟登录、验证码绕过或字体加密绕过代码。
+
 ## 本地运行
 
 安装依赖：
@@ -243,6 +307,18 @@ dist/
 .env
 .env.local
 .agents/
+data/
+hf-cache/
+*.jsonl
+*.parquet
+*.arrow
+*.db
+*.sqlite
+sample.csv
+data.csv
+novels-sample.json
+novels-sample-*.json
+novels-data-*.json
 ```
 
-请不要提交 API Key、构建产物或本地依赖目录。
+请不要提交 API Key、构建产物、本地依赖目录、公开数据集原文件、生成样本 JSON 或小说正文数据。

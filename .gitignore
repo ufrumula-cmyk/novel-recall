@@ -3,3 +3,15 @@ dist/
 .env
 .env.local
 .agents/
+data/
+hf-cache/
+*.jsonl
+*.parquet
+*.arrow
+*.db
+*.sqlite
+sample.csv
+data.csv
+novels-sample.json
+novels-sample-*.json
+novels-data-*.json
