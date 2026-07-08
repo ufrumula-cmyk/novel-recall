@@ -1429,30 +1429,149 @@ function AnalysisTagGroup({ label, tags }) {
 }
 
 function filterNovelsByKeyword(novels, query) {
-  const keyword = query.trim().toLocaleLowerCase()
+  const keyword = normalizeKeywordText(query)
 
   if (!keyword) {
     return novels
   }
 
-  return novels.filter((novel) => {
-    const searchableText = [
-      novel.title,
-      novel.author,
-      novel.category,
-      novel.intro,
-      novel.summary,
-      ...(Array.isArray(novel.tags) ? novel.tags : []),
-      ...(Array.isArray(novel.plotKeywords) ? novel.plotKeywords : []),
-      ...(Array.isArray(novel.characterTags) ? novel.characterTags : []),
-      ...(Array.isArray(novel.genreTags) ? novel.genreTags : []),
-    ]
-      .filter(Boolean)
-      .join('\n')
-      .toLocaleLowerCase()
+  const keywords = splitKeywordQuery(keyword)
 
-    return searchableText.includes(keyword)
+  if (keywords.length === 0) {
+    return novels
+  }
+
+  const keywordGroups = buildKeywordGroups(keywords)
+
+  return novels
+    .map((novel, index) => ({
+      novel,
+      index,
+      score: scoreNovelByKeywords(novel, keywordGroups),
+    }))
+    .filter(({ score }) => score > 0)
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .map(({ novel }) => novel)
+}
+
+const KEYWORD_EXPANSIONS = {
+  高中: ['高中', '高一', '高二', '高三', '校园'],
+  大学: ['大学', '大一', '大二', '大三', '大四', '校园'],
+  重生: ['重生', '回到过去', '重新开始'],
+  末世: ['末世', '灾难', '囤货', '物资'],
+  穿书: ['穿书', '书中', '反派', '女配'],
+  暗恋: ['暗恋', '默默喜欢', '喜欢她'],
+}
+
+const KEYWORD_SEPARATOR_PATTERN = /[\s,，、;；]+/
+const SINGLE_CHINESE_KEYWORD_PATTERN = /^[\u4e00-\u9fff]$/
+
+function splitKeywordQuery(query) {
+  return Array.from(
+    new Set(query.split(KEYWORD_SEPARATOR_PATTERN).map(normalizeKeywordText).filter(Boolean)),
+  )
+}
+
+function buildKeywordGroups(keywords) {
+  const hasLongKeyword = keywords.some((keyword) => keyword.length >= 2)
+
+  return keywords.map((keyword) => {
+    const expansionTerms = Array.from(
+      new Set(
+        (KEYWORD_EXPANSIONS[keyword] || [])
+          .map(normalizeKeywordText)
+          .filter((term) => term && term !== keyword),
+      ),
+    )
+
+    return {
+      keyword,
+      expansionTerms,
+      isAuxiliary:
+        hasLongKeyword && SINGLE_CHINESE_KEYWORD_PATTERN.test(keyword),
+    }
   })
+}
+
+function scoreNovelByKeywords(novel, keywordGroups) {
+  const fields = getKeywordSearchFields(novel)
+  const primaryGroups = keywordGroups.filter((group) => !group.isAuxiliary)
+  const auxiliaryGroups = keywordGroups.filter((group) => group.isAuxiliary)
+  let totalScore = 0
+
+  for (const group of primaryGroups) {
+    const groupScore = scoreKeywordGroup(fields, group)
+
+    if (groupScore <= 0) {
+      return 0
+    }
+
+    totalScore += groupScore
+  }
+
+  auxiliaryGroups.forEach((group) => {
+    const groupScore = scoreKeywordGroup(fields, group)
+
+    if (groupScore > 0) {
+      totalScore += groupScore * 0.15
+    }
+  })
+
+  return primaryGroups.length * 10000 + totalScore
+}
+
+function getKeywordSearchFields(novel) {
+  return [
+    { value: novel.title, weight: 8 },
+    { value: novel.author, weight: 5 },
+    { value: novel.category, weight: 5 },
+    { value: novel.intro, weight: 1 },
+    { value: novel.summary, weight: 3 },
+    ...getWeightedKeywordItems(novel.tags, 10),
+    ...getWeightedKeywordItems(novel.plotKeywords, 10),
+    ...getWeightedKeywordItems(novel.characterTags, 10),
+    ...getWeightedKeywordItems(novel.genreTags, 10),
+  ]
+    .map(({ value, weight }) => ({
+      text: normalizeKeywordText(value),
+      weight,
+    }))
+    .filter(({ text }) => text)
+}
+
+function getWeightedKeywordItems(values, weight) {
+  return Array.isArray(values)
+    ? values.map((value) => ({
+        value,
+        weight,
+      }))
+    : []
+}
+
+function scoreKeywordGroup(fields, group) {
+  const originalScore = scoreTermsInFields(fields, [group.keyword], 120, 12)
+  const expansionScore = scoreTermsInFields(fields, group.expansionTerms, 55, 6)
+
+  return originalScore + expansionScore
+}
+
+function scoreTermsInFields(fields, terms, baseScore, fieldWeightMultiplier) {
+  return terms.reduce(
+    (score, term) =>
+      score +
+      fields.reduce(
+        (fieldScore, field) =>
+          field.text.includes(term)
+            ? fieldScore + baseScore + field.weight * fieldWeightMultiplier
+            : fieldScore,
+        0,
+      ),
+    0,
+  )
+}
+
+function normalizeKeywordText(value) {
+  return String(value || '').trim().toLocaleLowerCase()
 }
 
 function hasNovelAnalysis(novel) {
