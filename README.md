@@ -221,6 +221,35 @@ CSV 输入要求包含表头。脚本会自动识别 `title`、`name`、`book_na
 
 请不要把原始小说全文、`sample.csv`、`data.csv`、生成的大 JSON 或任何本地数据集文件提交到 Git。本项目不采集小说章节正文，不绕过任何平台限制，不写爬虫、反爬、模拟登录、验证码绕过或字体加密绕过代码。
 
+## Demo 数据与搜索评估
+
+仓库提供一份可公开展示的安全 demo 数据：
+
+```text
+examples/demo-novels.json
+```
+
+这份文件包含 12 条手写虚构小说简介，覆盖校园重生、古言权谋、末世囤货、玄幻升级、娱乐圈甜宠、悬疑破案、无限流、修仙成长、先婚后爱、穿书反派洗白、星际机甲和种田经营等题材。它不来自真实小说平台，不来自 Hugging Face 或 Chinese-web-novel 抽样数据，也不包含完整小说正文。
+
+可在 Novel Recall options 页面直接导入 `examples/demo-novels.json`，用于演示 JSON 导入、关键词检索、AI 分析、向量生成和剧情语义检索流程。
+
+搜索质量评估说明位于：
+
+```text
+docs/search-evaluation.md
+```
+
+该文档提供关键词检索与剧情语义检索的对比方法、10 条固定测试 query、预期命中的 demo 小说 title，以及评估表格模板。建议使用 demo 数据进行公开演示和可复现测试，不要使用敏感数据集作为公开展示数据。
+
+数据合规边界：
+
+- `examples/demo-novels.json` 是虚构手写数据，可用于公开 demo。
+- Chinese-web-novel 只用于本地功能验证，不作为公开 demo 数据提交。
+- 不提交 `sample.csv`、`data.csv`、转换生成的 JSON 或任何真实数据集文件。
+- 不爬取晋江、番茄、起点或其他平台。
+- 不采集网页正文、小说章节正文、免费章节正文、VIP/付费章节正文。
+- 不绕过验证码、反爬、字体加密、JS 加密、复制限制或任何平台限制。
+
 ## 本地运行
 
 安装依赖：
@@ -281,6 +310,10 @@ src/
     novels.js             IndexedDB 小说存储、导入、导出、删除、清空、AI 结果和向量更新
   utils/
     vector.js             本地 cosine similarity 计算
+docs/
+  search-evaluation.md    搜索质量评估说明
+examples/
+  demo-novels.json        可公开展示的手写虚构 demo 数据
 ```
 
 ## 隐私与数据安全
